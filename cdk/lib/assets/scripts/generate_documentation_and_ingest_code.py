@@ -2,10 +2,23 @@ import boto3
 import datetime
 import os 
 import git
+import logging
 import uuid
 import time
 import shutil
 import tempfile
+
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s %(levelname)s %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
+    handlers=[
+        logging.StreamHandler()
+        ]
+    )
+logger = logging.getLogger(__name__)
+
 
 amazon_q = boto3.client('qbusiness')
 amazon_q_app_id = os.environ['AMAZON_Q_APP_ID']
@@ -19,13 +32,13 @@ ssh_key_name = os.environ.get('SSH_KEY_NAME')
 
 
 def main():
-    print(f"Processing repository... {repo_url}")
+    logger.info(f"Processing repository... {repo_url}")
     # If ssh_url ends with .git then process it
     if ssh_url and ssh_url.endswith('.git'):
         process_repository(repo_url, ssh_url)
     else:
         process_repository(repo_url)
-    print(f"Finished processing repository {repo_url}")
+    logger.info(f"Finished processing repository {repo_url}")
 
 
 def ask_question_with_attachment(prompt, filename):
@@ -122,7 +135,7 @@ def process_repository(repo_url, ssh_url=None):
 
     # Clone the repository
     # If you authenticate with some other repo provider just change the line below
-    print(f"Cloning repository... {repo_url}")
+    logger.info(f"Cloning repository... {repo_url}")
     if ssh_url:
         ssh_key = get_ssh_key(ssh_key_name)
         ssh_key_file = write_ssh_key_to_tempfile(ssh_key)
@@ -130,7 +143,7 @@ def process_repository(repo_url, ssh_url=None):
         repo = git.Repo.clone_from(ssh_url, tmp_dir, env={"GIT_SSH_COMMAND": ssh_command})
     else:
         repo = git.Repo.clone_from(repo_url, tmp_dir)
-    print(f"Finished cloning repository {repo_url}")
+    logger.info(f"Finished cloning repository {repo_url}")
     # Copy all files to destination folder
     for src_dir, dirs, files in os.walk(tmp_dir):
         dst_dir = src_dir.replace(tmp_dir, destination_folder)
@@ -148,7 +161,7 @@ def process_repository(repo_url, ssh_url=None):
 
     processed_files = []
     failed_files = []
-    print(f"Processing files in {destination_folder}")
+    logger.info(f"Processing files in {destination_folder}")
     for root, dirs, files in os.walk(destination_folder):
         if should_ignore_path(root):
             continue
@@ -163,7 +176,7 @@ def process_repository(repo_url, ssh_url=None):
             
             for attempt in range(3):
                 try:
-                    print(f"\033[92mProcessing file: {file_path}\033[0m")
+                    logger.info(f"\033[92mProcessing file: {file_path}\033[0m")
                     prompt = "Come up with a list of questions and answers about the attached file. Keep answers dense with information. A good question for a database related file would be 'What is the database technology and architecture?' or for a file that executes SQL commands 'What are the SQL commands and what do they do?' or for a file that contains a list of API endpoints 'What are the API endpoints and what do they do?'"
                     answer1 = ask_question_with_attachment(prompt, file_path)
                     upload_prompt_answer_and_file_name(file_path, prompt, answer1, repo_url)
@@ -186,14 +199,14 @@ def process_repository(repo_url, ssh_url=None):
                     processed_files.append(file)
                     break
                 except Exception as e:
-                    print(f"Error: {e}")
+                    logger.error(f"Error: {e}")
                     time.sleep(15)
             else:
-                print(f"\033[93mSkipping file: {file_path}\033[0m")
+                logger.info(f"\033[93mSkipping file: {file_path}\033[0m")
                 failed_files.append(file_path)
                 
-    print(f"Processed files: {processed_files}")
-    print(f"Failed files: {failed_files}")
+    logger.info(f"Processed files: {processed_files}")
+    logger.info(f"Failed files: {failed_files}")
 
 
 if __name__ == "__main__":
