@@ -2,6 +2,7 @@ import boto3
 import datetime
 import os 
 import git
+import uuid
 import shutil
 import tempfile
 
@@ -38,8 +39,6 @@ def ask_question_with_attachment(prompt, filename):
         ],
     )
     return answer['systemMessage']
-
-import uuid
 
 def upload_prompt_answer_and_file_name(filename, prompt, answer, repo_url):
     cleaned_file_name = os.path.join(repo_url[:-4], '/'.join(filename.split('/')[1:]))
