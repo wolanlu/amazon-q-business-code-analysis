@@ -86,7 +86,6 @@ def upload_prompt_answer_and_file_name(filename, prompt, answer, repo_url):
 
 # Function to save generated answers to folder documentation/
 def save_answers(answer, filepath, folder):
-    import os
     # Only create directory until the last / of filepath
     sub_directory = f"{folder}{filepath[:filepath.rfind('/')+1]}"
     if not os.path.exists(sub_directory):
