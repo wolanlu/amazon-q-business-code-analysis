@@ -42,7 +42,7 @@ def main():
 
 
 def ask_question_with_attachment(prompt, filename):
-    data=open(filename, 'rb')
+    data = open(filename, 'rb')
     answer = amazon_q.chat_sync(
         applicationId=amazon_q_app_id,
         userId=amazon_q_user_id,
@@ -68,7 +68,7 @@ def upload_prompt_answer_and_file_name(filename, prompt, answer, repo_url):
                 'id': str(uuid.uuid4()),
                 'contentType': 'PLAIN_TEXT',
                 'title': cleaned_file_name,
-                'content':{
+                'content': {
                     'blob': f"{cleaned_file_name} | {prompt} | {answer}".encode('utf-8')
                 },
                 'attributes': [
@@ -139,9 +139,9 @@ def process_repository(repo_url, ssh_url=None):
         ssh_key = get_ssh_key(ssh_key_name)
         ssh_key_file = write_ssh_key_to_tempfile(ssh_key)
         ssh_command = f"ssh -i {ssh_key_file} -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no"
-        repo = git.Repo.clone_from(ssh_url, tmp_dir, env={"GIT_SSH_COMMAND": ssh_command})
+        git.Repo.clone_from(ssh_url, tmp_dir, env={"GIT_SSH_COMMAND": ssh_command})
     else:
-        repo = git.Repo.clone_from(repo_url, tmp_dir)
+        git.Repo.clone_from(repo_url, tmp_dir)
     logger.info(f"Finished cloning repository {repo_url}")
     # Copy all files to destination folder
     for src_dir, dirs, files in os.walk(tmp_dir):
