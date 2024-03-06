@@ -3,6 +3,7 @@ import datetime
 import os 
 import git
 import uuid
+import time
 import shutil
 import tempfile
 
@@ -144,8 +145,6 @@ def process_repository(repo_url, ssh_url=None):
     
     # Delete temp clone       
     shutil.rmtree(tmp_dir)
-
-    import time
 
     processed_files = []
     failed_files = []
