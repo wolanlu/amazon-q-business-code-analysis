@@ -1,7 +1,6 @@
 import boto3
-import json
 import datetime
-import os 
+import os
 import git
 import shutil
 import tempfile
@@ -16,6 +15,7 @@ repo_url = os.environ['REPO_URL']
 ssh_url = os.environ.get('SSH_URL')
 ssh_key_name = os.environ.get('SSH_KEY_NAME')
 
+
 def main():
     print(f"Processing repository... {repo_url}")
     # If ssh_url ends with .git then process it
@@ -25,8 +25,9 @@ def main():
         process_repository(repo_url)
     print(f"Finished processing repository {repo_url}")
 
+
 def ask_question_with_attachment(prompt, filename):
-    data=open(filename, 'rb')
+    data = open(filename, 'rb')
     answer = amazon_q.chat_sync(
         applicationId=amazon_q_app_id,
         userId=amazon_q_user_id,
@@ -40,9 +41,11 @@ def ask_question_with_attachment(prompt, filename):
     )
     return answer['systemMessage']
 
+
 import uuid
 
-def upload_prompt_answer_and_file_name(filename, prompt, answer, repo_url):
+
+def upload_prompt_answer_and_file_name(filename, prompt, answer, repo_url, prompt_type):
     cleaned_file_name = os.path.join(repo_url[:-4], '/'.join(filename.split('/')[1:]))
     amazon_q.batch_put_document(
         applicationId=amazon_q_app_id,
@@ -50,10 +53,10 @@ def upload_prompt_answer_and_file_name(filename, prompt, answer, repo_url):
         roleArn=role_arn,
         documents=[
             {
-                'id': str(uuid.uuid4()),
+                'id': str(uuid.uuid5(uuid.NAMESPACE_URL, f"{cleaned_file_name}?prompt={prompt_type}")),
                 'contentType': 'PLAIN_TEXT',
                 'title': cleaned_file_name,
-                'content':{
+                'content': {
                     'blob': f"{cleaned_file_name} | {prompt} | {answer}".encode('utf-8')
                 },
                 'attributes': [
@@ -68,11 +71,12 @@ def upload_prompt_answer_and_file_name(filename, prompt, answer, repo_url):
         ]
     )
 
+
 # Function to save generated answers to folder documentation/
 def save_answers(answer, filepath, folder):
     import os
     # Only create directory until the last / of filepath
-    sub_directory = f"{folder}{filepath[:filepath.rfind('/')+1]}"
+    sub_directory = f"{folder}{filepath[:filepath.rfind('/') + 1]}"
     if not os.path.exists(sub_directory):
         # Only create directory until the last /
         os.makedirs(sub_directory)
@@ -80,6 +84,7 @@ def save_answers(answer, filepath, folder):
     filepath = filepath[:filepath.rfind('.')] + ".txt"
     with open(f"{folder}{filepath}", "w") as f:
         f.write(answer)
+
 
 def should_ignore_path(path):
     path_components = path.split(os.sep)
@@ -92,10 +97,12 @@ def should_ignore_path(path):
             return True
     return False
 
+
 def get_ssh_key(secret_name):
     client = boto3.client('secretsmanager')
     response = client.get_secret_value(SecretId=secret_name)
     return response['SecretString']
+
 
 def write_ssh_key_to_tempfile(ssh_key):
     with tempfile.NamedTemporaryFile(delete=False) as f:
@@ -103,10 +110,10 @@ def write_ssh_key_to_tempfile(ssh_key):
         f.write(ssh_key.strip().encode() + b'\n')  # Add a newline character at the end
         return f.name
 
-def process_repository(repo_url, ssh_url=None):
 
+def process_repository(repo_url, ssh_url=None):
     # Temporary clone location
-    tmp_dir = f"/tmp/{datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S')}" 
+    tmp_dir = f"/tmp/{datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S')}"
 
     destination_folder = 'repositories/'
 
@@ -135,8 +142,8 @@ def process_repository(repo_url, ssh_url=None):
             if os.path.exists(dst_file):
                 os.remove(dst_file)
             shutil.copy(src_file, dst_dir)
-    
-    # Delete temp clone       
+
+    # Delete temp clone
     shutil.rmtree(tmp_dir)
 
     import time
@@ -153,31 +160,33 @@ def process_repository(repo_url, ssh_url=None):
             # Ignore files that start with a dot (.)
             if file.startswith('.'):
                 continue
-                
+
             file_path = os.path.join(root, file)
-            
+
             for attempt in range(3):
                 try:
                     print(f"\033[92mProcessing file: {file_path}\033[0m")
                     prompt = "Come up with a list of questions and answers about the attached file. Keep answers dense with information. A good question for a database related file would be 'What is the database technology and architecture?' or for a file that executes SQL commands 'What are the SQL commands and what do they do?' or for a file that contains a list of API endpoints 'What are the API endpoints and what do they do?'"
                     answer1 = ask_question_with_attachment(prompt, file_path)
-                    upload_prompt_answer_and_file_name(file_path, prompt, answer1, repo_url)
+                    upload_prompt_answer_and_file_name(file_path, prompt, answer1, repo_url, prompt_type="questions")
                     # Upload generated documentation as well
                     prompt = "Generate comprehensive documentation about the attached file. Make sure you include what dependencies and other files are being referenced as well as function names, class names, and what they do."
                     answer2 = ask_question_with_attachment(prompt, file_path)
-                    upload_prompt_answer_and_file_name(file_path, prompt, answer2, repo_url)
+                    upload_prompt_answer_and_file_name(file_path, prompt, answer2, repo_url,
+                                                       prompt_type="documentation")
                     # Identify anti-patterns
                     prompt = "Identify anti-patterns in the attached file. Make sure to include examples of how to fix them. Try Q&A like 'What are some anti-patterns in the file?' or 'What could be causing high latency?'"
                     answer3 = ask_question_with_attachment(prompt, file_path)
-                    upload_prompt_answer_and_file_name(file_path, prompt, answer3, repo_url)
+                    upload_prompt_answer_and_file_name(file_path, prompt, answer3, repo_url,
+                                                       prompt_type="anti-patterns")
                     # Suggest improvements
                     prompt = "Suggest improvements to the attached file. Try Q&A like 'What are some ways to improve the file?' or 'Where can the file be optimized?'"
                     answer4 = ask_question_with_attachment(prompt, file_path)
-                    upload_prompt_answer_and_file_name(file_path, prompt, answer4, repo_url)
+                    upload_prompt_answer_and_file_name(file_path, prompt, answer4, repo_url, prompt_type="improvements")
                     # Upload the file itself to the index
                     code = open(file_path, 'r')
-                    upload_prompt_answer_and_file_name(file_path, "", code.read(), repo_url)
-                    save_answers(answer1+answer2+answer3+answer4, file_path, "documentation/")
+                    upload_prompt_answer_and_file_name(file_path, "", code.read(), repo_url, prompt_type="code")
+                    save_answers(answer1 + answer2 + answer3 + answer4, file_path, "documentation/")
                     processed_files.append(file)
                     break
                 except Exception as e:
@@ -186,9 +195,10 @@ def process_repository(repo_url, ssh_url=None):
             else:
                 print(f"\033[93mSkipping file: {file_path}\033[0m")
                 failed_files.append(file_path)
-                
+
     print(f"Processed files: {processed_files}")
     print(f"Failed files: {failed_files}")
+
 
 if __name__ == "__main__":
     main()
