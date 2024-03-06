@@ -163,30 +163,42 @@ def process_repository(repo_url, ssh_url=None):
 
             file_path = os.path.join(root, file)
 
+            questions = [
+                {
+                    "prompt": "Come up with a list of questions and answers about the attached file. Keep answers dense with information. A good question for a database related file would be 'What is the database technology and architecture?' or for a file that executes SQL commands 'What are the SQL commands and what do they do?' or for a file that contains a list of API endpoints 'What are the API endpoints and what do they do?'",
+                    "type": "questions"
+                },
+                {
+                    "prompt": "Generate comprehensive documentation about the attached file. Make sure you include what dependencies and other files are being referenced as well as function names, class names, and what they do.",
+                    "type": "documentation"
+                },
+                {
+                    "prompt": "Identify anti-patterns in the attached file. Make sure to include examples of how to fix them. Try Q&A like 'What are some anti-patterns in the file?' or 'What could be causing high latency?'",
+                    "type": "anti-patterns"
+                },
+                {
+                    "prompt": "Suggest improvements to the attached file. Try Q&A like 'What are some ways to improve the file?' or 'Where can the file be optimized?'",
+                    "type": "improvements"
+                },
+                {
+                    "prompt": "Come up with a list of questions and answers about the attached file. Keep answers dense with information. A good question for a database related file would be 'What is the database technology and architecture?' or for a file that executes SQL commands 'What are the SQL commands and what do they do?' or for a file that contains a list of API endpoints 'What are the API endpoints and what do they do?'",
+                    "type": "questions"
+                },
+            ]
+
             for attempt in range(3):
                 try:
                     print(f"\033[92mProcessing file: {file_path}\033[0m")
-                    prompt = "Come up with a list of questions and answers about the attached file. Keep answers dense with information. A good question for a database related file would be 'What is the database technology and architecture?' or for a file that executes SQL commands 'What are the SQL commands and what do they do?' or for a file that contains a list of API endpoints 'What are the API endpoints and what do they do?'"
-                    answer1 = ask_question_with_attachment(prompt, file_path)
-                    upload_prompt_answer_and_file_name(file_path, prompt, answer1, repo_url, prompt_type="questions")
-                    # Upload generated documentation as well
-                    prompt = "Generate comprehensive documentation about the attached file. Make sure you include what dependencies and other files are being referenced as well as function names, class names, and what they do."
-                    answer2 = ask_question_with_attachment(prompt, file_path)
-                    upload_prompt_answer_and_file_name(file_path, prompt, answer2, repo_url,
-                                                       prompt_type="documentation")
-                    # Identify anti-patterns
-                    prompt = "Identify anti-patterns in the attached file. Make sure to include examples of how to fix them. Try Q&A like 'What are some anti-patterns in the file?' or 'What could be causing high latency?'"
-                    answer3 = ask_question_with_attachment(prompt, file_path)
-                    upload_prompt_answer_and_file_name(file_path, prompt, answer3, repo_url,
-                                                       prompt_type="anti-patterns")
-                    # Suggest improvements
-                    prompt = "Suggest improvements to the attached file. Try Q&A like 'What are some ways to improve the file?' or 'Where can the file be optimized?'"
-                    answer4 = ask_question_with_attachment(prompt, file_path)
-                    upload_prompt_answer_and_file_name(file_path, prompt, answer4, repo_url, prompt_type="improvements")
+                    all_answers = ""
+                    for question in questions:
+                        answer = ask_question_with_attachment(question['prompt'], file_path)
+                        upload_prompt_answer_and_file_name(file_path, question['prompt'], answer, repo_url, prompt_type=question['type'])
+                        all_answers.join(f"{questions['type']}:\n{answer}\n")
+
                     # Upload the file itself to the index
                     code = open(file_path, 'r')
                     upload_prompt_answer_and_file_name(file_path, "", code.read(), repo_url, prompt_type="code")
-                    save_answers(answer1 + answer2 + answer3 + answer4, file_path, "documentation/")
+                    save_answers(all_answers, file_path, "documentation/")
                     processed_files.append(file)
                     break
                 except Exception as e:
