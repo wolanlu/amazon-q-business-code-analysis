@@ -27,20 +27,20 @@ amazon_q_user_id = os.environ['AMAZON_Q_USER_ID']
 s3_bucket = os.environ['S3_BUCKET']
 index_id = os.environ['Q_APP_INDEX']
 role_arn = os.environ['Q_APP_ROLE_ARN']
-repo_url = os.environ['REPO_URL']
+repo = os.environ['REPO_URL']
 # Optional retrieve the SSH URL and SSH_KEY_NAME for the repository
-ssh_url = os.environ.get('SSH_URL')
+ssh = os.environ.get('SSH_URL')
 ssh_key_name = os.environ.get('SSH_KEY_NAME')
 
 
 def main():
-    logger.info(f"Processing repository... {repo_url}")
+    logger.info(f"Processing repository... {repo}")
     # If ssh_url ends with .git then process it
-    if ssh_url and ssh_url.endswith('.git'):
-        process_repository(repo_url, ssh_url)
+    if ssh and ssh.endswith('.git'):
+        process_repository(repo, ssh)
     else:
-        process_repository(repo_url)
-    logger.info(f"Finished processing repository {repo_url}")
+        process_repository(repo)
+    logger.info(f"Finished processing repository {repo}")
 
 
 def ask_question_with_attachment(prompt, filename):
@@ -185,22 +185,22 @@ def process_repository(repo_url, ssh_url=None):
                     logger.info(f"\033[92mProcessing file: {file_path}\033[0m")
                     prompt = "Come up with a list of questions and answers about the attached file. Keep answers dense with information. A good question for a database related file would be 'What is the database technology and architecture?' or for a file that executes SQL commands 'What are the SQL commands and what do they do?' or for a file that contains a list of API endpoints 'What are the API endpoints and what do they do?'"
                     answer1 = ask_question_with_attachment(prompt, file_path)
-                    upload_prompt_answer_and_file_name(file_path, prompt, answer1, repo_url)
+                    upload_prompt_answer_and_file_name(file_path, prompt, answer1, repo)
                     # Upload generated documentation as well
                     prompt = "Generate comprehensive documentation about the attached file. Make sure you include what dependencies and other files are being referenced as well as function names, class names, and what they do."
                     answer2 = ask_question_with_attachment(prompt, file_path)
-                    upload_prompt_answer_and_file_name(file_path, prompt, answer2, repo_url)
+                    upload_prompt_answer_and_file_name(file_path, prompt, answer2, repo)
                     # Identify anti-patterns
                     prompt = "Identify anti-patterns in the attached file. Make sure to include examples of how to fix them. Try Q&A like 'What are some anti-patterns in the file?' or 'What could be causing high latency?'"
                     answer3 = ask_question_with_attachment(prompt, file_path)
-                    upload_prompt_answer_and_file_name(file_path, prompt, answer3, repo_url)
+                    upload_prompt_answer_and_file_name(file_path, prompt, answer3, repo)
                     # Suggest improvements
                     prompt = "Suggest improvements to the attached file. Try Q&A like 'What are some ways to improve the file?' or 'Where can the file be optimized?'"
                     answer4 = ask_question_with_attachment(prompt, file_path)
-                    upload_prompt_answer_and_file_name(file_path, prompt, answer4, repo_url)
+                    upload_prompt_answer_and_file_name(file_path, prompt, answer4, repo)
                     # Upload the file itself to the index
                     code = open(file_path, 'r')
-                    upload_prompt_answer_and_file_name(file_path, "", code.read(), repo_url)
+                    upload_prompt_answer_and_file_name(file_path, "", code.read(), repo)
                     save_to_s3(s3_bucket, repo_url, file, answer1+answer2+answer3+answer4)
                     processed_files.append(file)
                     break
