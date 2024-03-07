@@ -1,6 +1,6 @@
 import boto3
 import datetime
-import os 
+import os
 import git
 import logging
 import uuid
@@ -21,8 +21,10 @@ logger = logging.getLogger(__name__)
 
 
 amazon_q = boto3.client('qbusiness')
+s3_client = boto3.client('s3', endpoint_url='https://s3.amazonaws.com', use_ssl=True)
 amazon_q_app_id = os.environ['AMAZON_Q_APP_ID']
 amazon_q_user_id = os.environ['AMAZON_Q_USER_ID']
+s3_bucket = os.environ['S3_BUCKET']
 index_id = os.environ['Q_APP_INDEX']
 role_arn = os.environ['Q_APP_ROLE_ARN']
 repo_url = os.environ['REPO_URL']
@@ -97,6 +99,11 @@ def save_answers(answer, filepath, folder):
         f.write(answer)
 
 
+def save_to_s3(bucket_name, repo_url, filename, documentation):
+    s3_client.put_object(Bucket=bucket_name, Key=f'documentation/{repo_url}/{filename}', Body=documentation)
+    logger.info(f"Saved {filename} to S3")
+
+
 def should_ignore_path(path):
     path_components = path.split(os.sep)
     for component in path_components:
@@ -125,7 +132,7 @@ def write_ssh_key_to_tempfile(ssh_key):
 def process_repository(repo_url, ssh_url=None):
 
     # Temporary clone location
-    tmp_dir = f"/tmp/{datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S')}" 
+    tmp_dir = f"/tmp/{datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S')}"
 
     destination_folder = 'repositories/'
 
@@ -154,7 +161,7 @@ def process_repository(repo_url, ssh_url=None):
             if os.path.exists(dst_file):
                 os.remove(dst_file)
             shutil.copy(src_file, dst_dir)
-    
+
     # Delete temp clone       
     shutil.rmtree(tmp_dir)
 
@@ -170,9 +177,9 @@ def process_repository(repo_url, ssh_url=None):
             # Ignore files that start with a dot (.)
             if file.startswith('.'):
                 continue
-                
+
             file_path = os.path.join(root, file)
-            
+
             for attempt in range(3):
                 try:
                     logger.info(f"\033[92mProcessing file: {file_path}\033[0m")
@@ -194,7 +201,7 @@ def process_repository(repo_url, ssh_url=None):
                     # Upload the file itself to the index
                     code = open(file_path, 'r')
                     upload_prompt_answer_and_file_name(file_path, "", code.read(), repo_url)
-                    save_answers(answer1+answer2+answer3+answer4, file_path, "documentation/")
+                    save_to_s3(s3_bucket, repo_url, file, answer1+answer2+answer3+answer4)
                     processed_files.append(file)
                     break
                 except Exception as e:
@@ -203,7 +210,7 @@ def process_repository(repo_url, ssh_url=None):
             else:
                 logger.info(f"\033[93mSkipping file: {file_path}\033[0m")
                 failed_files.append(file_path)
-                
+
     logger.info(f"Processed files: {processed_files}")
     logger.info(f"Failed files: {failed_files}")
 
