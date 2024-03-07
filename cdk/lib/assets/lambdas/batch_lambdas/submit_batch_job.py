@@ -48,6 +48,10 @@ def on_create(event, physical_id):
             "value": ssh_url
         },
         {
+            "name": "S3_BUCKET",
+            "value": s3_bucket
+        },
+        {
             "name": "SSH_KEY_NAME",
             "value": ssh_key_name
         },
