@@ -99,9 +99,10 @@ def save_answers(answer, filepath, folder):
         f.write(answer)
 
 
-def save_to_s3(bucket_name, repo_url, filename, documentation):
-    s3_client.put_object(Bucket=bucket_name, Key=f'documentation/{repo_url}/{filename}', Body=documentation)
-    logger.info(f"Saved {filename} to S3")
+def save_to_s3(bucket_name, repo_name, filepath, documentation):
+    filepath = filepath[:filepath.rfind('.')] + ".txt"
+    s3_client.put_object(Bucket=bucket_name, Key=f'documentation/{repo_name}/{filepath}', Body=documentation)
+    logger.info(f"Saved {filepath} to S3")
 
 
 def should_ignore_path(path):
@@ -133,7 +134,7 @@ def process_repository(repo_url, ssh_url=None):
 
     # Temporary clone location
     tmp_dir = f"/tmp/{datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S')}"
-
+    repo_name, _ = "-".join(repo_url.split('/')[-2:]).split(".")
     destination_folder = 'repositories/'
 
     if not os.path.exists(destination_folder):
@@ -201,7 +202,7 @@ def process_repository(repo_url, ssh_url=None):
                     # Upload the file itself to the index
                     code = open(file_path, 'r')
                     upload_prompt_answer_and_file_name(file_path, "", code.read(), repo)
-                    save_to_s3(s3_bucket, repo_url, file, answer1+answer2+answer3+answer4)
+                    save_to_s3(s3_bucket, repo_name, file, answer1+answer2+answer3+answer4)
                     processed_files.append(file)
                     break
                 except Exception as e:
