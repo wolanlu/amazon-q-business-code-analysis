@@ -66,6 +66,10 @@ def on_create(event, physical_id):
         {
             "name": "Q_APP_ROLE_ARN",
             "value": q_app_role_arn
+        },
+        {
+            "name": "S3_BUCKET",
+            "value": s3_bucket
         }],
         "command": [
             "sh","-c",f"yum -y install python-pip git && pip install boto3 awscli GitPython && aws s3 cp s3://{s3_bucket}/code-processing/generate_documentation_and_ingest_code.py . && python3 generate_documentation_and_ingest_code.py"

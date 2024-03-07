@@ -4,13 +4,16 @@ import os
 import git
 import shutil
 import tempfile
+import uuid
 
 amazon_q = boto3.client('qbusiness')
+s3 = boto3.client('s3')
 amazon_q_app_id = os.environ['AMAZON_Q_APP_ID']
 amazon_q_user_id = os.environ['AMAZON_Q_USER_ID']
 index_id = os.environ['Q_APP_INDEX']
 role_arn = os.environ['Q_APP_ROLE_ARN']
 repo_url = os.environ['REPO_URL']
+s3_bucket = os.environ['S3_BUCKET']
 # Optional retrieve the SSH URL and SSH_KEY_NAME for the repository
 ssh_url = os.environ.get('SSH_URL')
 ssh_key_name = os.environ.get('SSH_KEY_NAME')
@@ -42,7 +45,6 @@ def ask_question_with_attachment(prompt, filename):
     return answer['systemMessage']
 
 
-import uuid
 
 
 def upload_prompt_answer_and_file_name(filename, prompt, answer, repo_url, prompt_type):
@@ -74,16 +76,10 @@ def upload_prompt_answer_and_file_name(filename, prompt, answer, repo_url, promp
 
 # Function to save generated answers to folder documentation/
 def save_answers(answer, filepath, folder):
-    import os
-    # Only create directory until the last / of filepath
-    sub_directory = f"{folder}{filepath[:filepath.rfind('/') + 1]}"
-    if not os.path.exists(sub_directory):
-        # Only create directory until the last /
-        os.makedirs(sub_directory)
-    # Replace all file endings with .txt
-    filepath = filepath[:filepath.rfind('.')] + ".txt"
-    with open(f"{folder}{filepath}", "w") as f:
-        f.write(answer)
+    # Replace all file endings with .out
+    filepath = filepath + ".out"
+    # Write answer to s3
+    s3.put_object(Body=answer.encode('utf-8'), Bucket=s3_bucket, Key=f"{folder}/{filepath}")
 
 
 def should_ignore_path(path):
@@ -180,10 +176,6 @@ def process_repository(repo_url, ssh_url=None):
                     "prompt": "Suggest improvements to the attached file. Try Q&A like 'What are some ways to improve the file?' or 'Where can the file be optimized?'",
                     "type": "improvements"
                 },
-                {
-                    "prompt": "Come up with a list of questions and answers about the attached file. Keep answers dense with information. A good question for a database related file would be 'What is the database technology and architecture?' or for a file that executes SQL commands 'What are the SQL commands and what do they do?' or for a file that contains a list of API endpoints 'What are the API endpoints and what do they do?'",
-                    "type": "questions"
-                },
             ]
 
             for attempt in range(3):
@@ -193,12 +185,12 @@ def process_repository(repo_url, ssh_url=None):
                     for question in questions:
                         answer = ask_question_with_attachment(question['prompt'], file_path)
                         upload_prompt_answer_and_file_name(file_path, question['prompt'], answer, repo_url, prompt_type=question['type'])
-                        all_answers.join(f"{questions['type']}:\n{answer}\n")
+                        all_answers = all_answers + f"[{question['type']}]{question['prompt']}:\n{answer}\n"
 
                     # Upload the file itself to the index
                     code = open(file_path, 'r')
                     upload_prompt_answer_and_file_name(file_path, "", code.read(), repo_url, prompt_type="code")
-                    save_answers(all_answers, file_path, "documentation/")
+                    save_answers(all_answers, file_path, "documentation")
                     processed_files.append(file)
                     break
                 except Exception as e:
