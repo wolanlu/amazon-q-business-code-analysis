@@ -201,7 +201,7 @@ def process_repository(repo_url, ssh_url=None):
                     # Upload the file itself to the index
                     code = open(file_path, 'r')
                     upload_prompt_answer_and_file_name(file_path, "", code.read(), repo_url, prompt_type="code")
-                    save_to_s3(s3_bucket, repo_name, file, "documentation", all_answers)
+                    save_to_s3(s3_bucket, repo_name, file_path, "documentation", all_answers)
                     processed_files.append(file)
                     break
                 except Exception as e:
