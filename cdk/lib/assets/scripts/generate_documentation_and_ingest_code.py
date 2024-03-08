@@ -1,35 +1,48 @@
-import json
-import boto3
 import datetime
+import json
+import logging
 import os
-import git
 import shutil
 import tempfile
+import time
 import uuid
 
+import boto3
+import git
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s %(levelname)s %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
+    handlers=[
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
 amazon_q = boto3.client('qbusiness')
-s3 = boto3.client('s3')
+s3_client = boto3.client('s3', endpoint_url='https://s3.amazonaws.com', use_ssl=True)
 ssm = boto3.client('ssm')
 amazon_q_app_id = os.environ['AMAZON_Q_APP_ID']
 amazon_q_user_id = os.environ['AMAZON_Q_USER_ID']
+s3_bucket = os.environ['S3_BUCKET']
 index_id = os.environ['Q_APP_INDEX']
 role_arn = os.environ['Q_APP_ROLE_ARN']
-repo_url = os.environ['REPO_URL']
-s3_bucket = os.environ['S3_BUCKET']
+repo = os.environ['REPO_URL']
 prompt_config_param_name = os.environ['PROMPT_CONFIG_SSM_PARAM_NAME']
 # Optional retrieve the SSH URL and SSH_KEY_NAME for the repository
-ssh_url = os.environ.get('SSH_URL')
+ssh = os.environ.get('SSH_URL')
 ssh_key_name = os.environ.get('SSH_KEY_NAME')
 
 
 def main():
-    print(f"Processing repository... {repo_url}")
+    logger.info(f"Processing repository... {repo}")
     # If ssh_url ends with .git then process it
-    if ssh_url and ssh_url.endswith('.git'):
-        process_repository(repo_url, ssh_url)
+    if ssh and ssh.endswith('.git'):
+        process_repository(repo, ssh)
     else:
-        process_repository(repo_url)
-    print(f"Finished processing repository {repo_url}")
+        process_repository(repo)
+    logger.info(f"Finished processing repository {repo}")
 
 
 def ask_question_with_attachment(prompt, filename):
@@ -46,8 +59,6 @@ def ask_question_with_attachment(prompt, filename):
         ],
     )
     return answer['systemMessage']
-
-
 
 
 def upload_prompt_answer_and_file_name(filename, prompt, answer, repo_url, prompt_type):
@@ -79,10 +90,21 @@ def upload_prompt_answer_and_file_name(filename, prompt, answer, repo_url, promp
 
 # Function to save generated answers to folder documentation/
 def save_answers(answer, filepath, folder):
-    # Replace all file endings with .out
+    # Only create directory until the last / of filepath
+    sub_directory = f"{folder}{filepath[:filepath.rfind('/') + 1]}"
+    if not os.path.exists(sub_directory):
+        # Only create directory until the last /
+        os.makedirs(sub_directory)
+    # Replace all file endings with .txt
+    filepath = filepath[:filepath.rfind('.')] + ".txt"
+    with open(f"{folder}{filepath}", "w") as f:
+        f.write(answer)
+
+
+def save_to_s3(bucket_name, repo_name, filepath, folder, documentation):
     filepath = filepath + ".out"
-    # Write answer to s3
-    s3.put_object(Body=answer.encode('utf-8'), Bucket=s3_bucket, Key=f"{folder}/{filepath}")
+    s3_client.put_object(Bucket=bucket_name, Key=f'{folder}/{repo_name}/{filepath}', Body=documentation.encode('utf-8'))
+    logger.info(f"Saved {filepath} to S3")
 
 
 def should_ignore_path(path):
@@ -118,7 +140,7 @@ def get_questions_from_param_store(prompt_config_param_name):
 def process_repository(repo_url, ssh_url=None):
     # Temporary clone location
     tmp_dir = f"/tmp/{datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S')}"
-
+    repo_name, _ = "-".join(repo_url.split('/')[-2:]).split(".")
     destination_folder = 'repositories/'
 
     if not os.path.exists(destination_folder):
@@ -126,15 +148,15 @@ def process_repository(repo_url, ssh_url=None):
 
     # Clone the repository
     # If you authenticate with some other repo provider just change the line below
-    print(f"Cloning repository... {repo_url}")
+    logger.info(f"Cloning repository... {repo_url}")
     if ssh_url:
         ssh_key = get_ssh_key(ssh_key_name)
         ssh_key_file = write_ssh_key_to_tempfile(ssh_key)
         ssh_command = f"ssh -i {ssh_key_file} -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no"
-        repo = git.Repo.clone_from(ssh_url, tmp_dir, env={"GIT_SSH_COMMAND": ssh_command})
+        git.Repo.clone_from(ssh_url, tmp_dir, env={"GIT_SSH_COMMAND": ssh_command})
     else:
-        repo = git.Repo.clone_from(repo_url, tmp_dir)
-    print(f"Finished cloning repository {repo_url}")
+        git.Repo.clone_from(repo_url, tmp_dir)
+    logger.info(f"Finished cloning repository {repo_url}")
     # Copy all files to destination folder
     for src_dir, dirs, files in os.walk(tmp_dir):
         dst_dir = src_dir.replace(tmp_dir, destination_folder)
@@ -150,12 +172,10 @@ def process_repository(repo_url, ssh_url=None):
     # Delete temp clone
     shutil.rmtree(tmp_dir)
 
-    import time
-
     processed_files = []
     failed_files = []
+    logger.info(f"Processing files in {destination_folder}")
     questions = get_questions_from_param_store(prompt_config_param_name)
-    print(f"Processing files in {destination_folder}")
     for root, dirs, files in os.walk(destination_folder):
         if should_ignore_path(root):
             continue
@@ -170,28 +190,29 @@ def process_repository(repo_url, ssh_url=None):
 
             for attempt in range(3):
                 try:
-                    print(f"\033[92mProcessing file: {file_path}\033[0m")
+                    logger.info(f"\033[92mProcessing file: {file_path}\033[0m")
                     all_answers = ""
                     for question in questions:
                         answer = ask_question_with_attachment(question['prompt'], file_path)
-                        upload_prompt_answer_and_file_name(file_path, question['prompt'], answer, repo_url, prompt_type=question['type'])
+                        upload_prompt_answer_and_file_name(file_path, question['prompt'], answer, repo_url,
+                                                           prompt_type=question['type'])
                         all_answers = all_answers + f"[{question['type']}]{question['prompt']}:\n{answer}\n"
 
                     # Upload the file itself to the index
                     code = open(file_path, 'r')
                     upload_prompt_answer_and_file_name(file_path, "", code.read(), repo_url, prompt_type="code")
-                    save_answers(all_answers, file_path, "documentation")
+                    save_to_s3(s3_bucket, repo_name, file, "documentation", all_answers)
                     processed_files.append(file)
                     break
                 except Exception as e:
-                    print(f"Error: {e}")
+                    logger.error(f"Error: {e}")
                     time.sleep(15)
             else:
-                print(f"\033[93mSkipping file: {file_path}\033[0m")
+                logger.info(f"\033[93mSkipping file: {file_path}\033[0m")
                 failed_files.append(file_path)
 
-    print(f"Processed files: {processed_files}")
-    print(f"Failed files: {failed_files}")
+    logger.info(f"Processed files: {processed_files}")
+    logger.info(f"Failed files: {failed_files}")
 
 
 if __name__ == "__main__":
