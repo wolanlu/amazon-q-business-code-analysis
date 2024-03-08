@@ -1,3 +1,4 @@
+import json
 import boto3
 import datetime
 import os
@@ -8,12 +9,14 @@ import uuid
 
 amazon_q = boto3.client('qbusiness')
 s3 = boto3.client('s3')
+ssm = boto3.client('ssm')
 amazon_q_app_id = os.environ['AMAZON_Q_APP_ID']
 amazon_q_user_id = os.environ['AMAZON_Q_USER_ID']
 index_id = os.environ['Q_APP_INDEX']
 role_arn = os.environ['Q_APP_ROLE_ARN']
 repo_url = os.environ['REPO_URL']
 s3_bucket = os.environ['S3_BUCKET']
+prompt_config_param_name = os.environ['PROMPT_CONFIG_SSM_PARAM_NAME']
 # Optional retrieve the SSH URL and SSH_KEY_NAME for the repository
 ssh_url = os.environ.get('SSH_URL')
 ssh_key_name = os.environ.get('SSH_KEY_NAME')
@@ -107,6 +110,11 @@ def write_ssh_key_to_tempfile(ssh_key):
         return f.name
 
 
+def get_questions_from_param_store(prompt_config_param_name):
+    response = ssm.get_parameter(Name=prompt_config_param_name)['Parameter']['Value']
+    return json.loads(response)
+
+
 def process_repository(repo_url, ssh_url=None):
     # Temporary clone location
     tmp_dir = f"/tmp/{datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S')}"
@@ -146,6 +154,7 @@ def process_repository(repo_url, ssh_url=None):
 
     processed_files = []
     failed_files = []
+    questions = get_questions_from_param_store(prompt_config_param_name)
     print(f"Processing files in {destination_folder}")
     for root, dirs, files in os.walk(destination_folder):
         if should_ignore_path(root):
@@ -158,25 +167,6 @@ def process_repository(repo_url, ssh_url=None):
                 continue
 
             file_path = os.path.join(root, file)
-
-            questions = [
-                {
-                    "prompt": "Come up with a list of questions and answers about the attached file. Keep answers dense with information. A good question for a database related file would be 'What is the database technology and architecture?' or for a file that executes SQL commands 'What are the SQL commands and what do they do?' or for a file that contains a list of API endpoints 'What are the API endpoints and what do they do?'",
-                    "type": "questions"
-                },
-                {
-                    "prompt": "Generate comprehensive documentation about the attached file. Make sure you include what dependencies and other files are being referenced as well as function names, class names, and what they do.",
-                    "type": "documentation"
-                },
-                {
-                    "prompt": "Identify anti-patterns in the attached file. Make sure to include examples of how to fix them. Try Q&A like 'What are some anti-patterns in the file?' or 'What could be causing high latency?'",
-                    "type": "anti-patterns"
-                },
-                {
-                    "prompt": "Suggest improvements to the attached file. Try Q&A like 'What are some ways to improve the file?' or 'Where can the file be optimized?'",
-                    "type": "improvements"
-                },
-            ]
 
             for attempt in range(3):
                 try:
