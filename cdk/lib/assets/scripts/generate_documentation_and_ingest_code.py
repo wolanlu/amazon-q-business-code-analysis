@@ -1,13 +1,14 @@
-import boto3
 import datetime
-import os
-import git
+import json
 import logging
-import uuid
-import time
+import os
 import shutil
 import tempfile
+import time
+import uuid
 
+import boto3
+import git
 
 logging.basicConfig(
     level=logging.INFO,
@@ -15,19 +16,20 @@ logging.basicConfig(
     datefmt='%Y-%m-%d %H:%M:%S',
     handlers=[
         logging.StreamHandler()
-        ]
-    )
+    ]
+)
 logger = logging.getLogger(__name__)
-
 
 amazon_q = boto3.client('qbusiness')
 s3_client = boto3.client('s3', endpoint_url='https://s3.amazonaws.com', use_ssl=True)
+ssm = boto3.client('ssm')
 amazon_q_app_id = os.environ['AMAZON_Q_APP_ID']
 amazon_q_user_id = os.environ['AMAZON_Q_USER_ID']
 s3_bucket = os.environ['S3_BUCKET']
 index_id = os.environ['Q_APP_INDEX']
 role_arn = os.environ['Q_APP_ROLE_ARN']
 repo = os.environ['REPO_URL']
+prompt_config_param_name = os.environ['PROMPT_CONFIG_SSM_PARAM_NAME']
 # Optional retrieve the SSH URL and SSH_KEY_NAME for the repository
 ssh = os.environ.get('SSH_URL')
 ssh_key_name = os.environ.get('SSH_KEY_NAME')
@@ -59,7 +61,7 @@ def ask_question_with_attachment(prompt, filename):
     return answer['systemMessage']
 
 
-def upload_prompt_answer_and_file_name(filename, prompt, answer, repo_url):
+def upload_prompt_answer_and_file_name(filename, prompt, answer, repo_url, prompt_type):
     cleaned_file_name = os.path.join(repo_url[:-4], '/'.join(filename.split('/')[1:]))
     amazon_q.batch_put_document(
         applicationId=amazon_q_app_id,
@@ -67,7 +69,7 @@ def upload_prompt_answer_and_file_name(filename, prompt, answer, repo_url):
         roleArn=role_arn,
         documents=[
             {
-                'id': str(uuid.uuid4()),
+                'id': str(uuid.uuid5(uuid.NAMESPACE_URL, f"{cleaned_file_name}?prompt={prompt_type}")),
                 'contentType': 'PLAIN_TEXT',
                 'title': cleaned_file_name,
                 'content': {
@@ -89,7 +91,7 @@ def upload_prompt_answer_and_file_name(filename, prompt, answer, repo_url):
 # Function to save generated answers to folder documentation/
 def save_answers(answer, filepath, folder):
     # Only create directory until the last / of filepath
-    sub_directory = f"{folder}{filepath[:filepath.rfind('/')+1]}"
+    sub_directory = f"{folder}{filepath[:filepath.rfind('/') + 1]}"
     if not os.path.exists(sub_directory):
         # Only create directory until the last /
         os.makedirs(sub_directory)
@@ -99,9 +101,9 @@ def save_answers(answer, filepath, folder):
         f.write(answer)
 
 
-def save_to_s3(bucket_name, repo_name, filepath, documentation):
-    filepath = filepath[:filepath.rfind('.')] + ".txt"
-    s3_client.put_object(Bucket=bucket_name, Key=f'documentation/{repo_name}/{filepath}', Body=documentation)
+def save_to_s3(bucket_name, repo_name, filepath, folder, documentation):
+    filepath = filepath + ".out"
+    s3_client.put_object(Bucket=bucket_name, Key=f'{folder}/{repo_name}/{filepath}', Body=documentation.encode('utf-8'))
     logger.info(f"Saved {filepath} to S3")
 
 
@@ -130,8 +132,12 @@ def write_ssh_key_to_tempfile(ssh_key):
         return f.name
 
 
-def process_repository(repo_url, ssh_url=None):
+def get_questions_from_param_store(prompt_config_param_name):
+    response = ssm.get_parameter(Name=prompt_config_param_name)['Parameter']['Value']
+    return json.loads(response)
 
+
+def process_repository(repo_url, ssh_url=None):
     # Temporary clone location
     tmp_dir = f"/tmp/{datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S')}"
     repo_name, _ = "-".join(repo_url.split('/')[-2:]).split(".")
@@ -163,12 +169,13 @@ def process_repository(repo_url, ssh_url=None):
                 os.remove(dst_file)
             shutil.copy(src_file, dst_dir)
 
-    # Delete temp clone       
+    # Delete temp clone
     shutil.rmtree(tmp_dir)
 
     processed_files = []
     failed_files = []
     logger.info(f"Processing files in {destination_folder}")
+    questions = get_questions_from_param_store(prompt_config_param_name)
     for root, dirs, files in os.walk(destination_folder):
         if should_ignore_path(root):
             continue
@@ -184,25 +191,17 @@ def process_repository(repo_url, ssh_url=None):
             for attempt in range(3):
                 try:
                     logger.info(f"\033[92mProcessing file: {file_path}\033[0m")
-                    prompt = "Come up with a list of questions and answers about the attached file. Keep answers dense with information. A good question for a database related file would be 'What is the database technology and architecture?' or for a file that executes SQL commands 'What are the SQL commands and what do they do?' or for a file that contains a list of API endpoints 'What are the API endpoints and what do they do?'"
-                    answer1 = ask_question_with_attachment(prompt, file_path)
-                    upload_prompt_answer_and_file_name(file_path, prompt, answer1, repo)
-                    # Upload generated documentation as well
-                    prompt = "Generate comprehensive documentation about the attached file. Make sure you include what dependencies and other files are being referenced as well as function names, class names, and what they do."
-                    answer2 = ask_question_with_attachment(prompt, file_path)
-                    upload_prompt_answer_and_file_name(file_path, prompt, answer2, repo)
-                    # Identify anti-patterns
-                    prompt = "Identify anti-patterns in the attached file. Make sure to include examples of how to fix them. Try Q&A like 'What are some anti-patterns in the file?' or 'What could be causing high latency?'"
-                    answer3 = ask_question_with_attachment(prompt, file_path)
-                    upload_prompt_answer_and_file_name(file_path, prompt, answer3, repo)
-                    # Suggest improvements
-                    prompt = "Suggest improvements to the attached file. Try Q&A like 'What are some ways to improve the file?' or 'Where can the file be optimized?'"
-                    answer4 = ask_question_with_attachment(prompt, file_path)
-                    upload_prompt_answer_and_file_name(file_path, prompt, answer4, repo)
+                    all_answers = ""
+                    for question in questions:
+                        answer = ask_question_with_attachment(question['prompt'], file_path)
+                        upload_prompt_answer_and_file_name(file_path, question['prompt'], answer, repo_url,
+                                                           prompt_type=question['type'])
+                        all_answers = all_answers + f"[{question['type']}]{question['prompt']}:\n{answer}\n"
+
                     # Upload the file itself to the index
                     code = open(file_path, 'r')
-                    upload_prompt_answer_and_file_name(file_path, "", code.read(), repo)
-                    save_to_s3(s3_bucket, repo_name, file, answer1+answer2+answer3+answer4)
+                    upload_prompt_answer_and_file_name(file_path, "", code.read(), repo_url, prompt_type="code")
+                    save_to_s3(s3_bucket, repo_name, file_path, "documentation", all_answers)
                     processed_files.append(file)
                     break
                 except Exception as e:
