@@ -12,7 +12,8 @@ export interface RestApiProps extends StackProps {
     s3Bucket: IBucket;
     qAppUserId: string;
     qAppRoleArn: string;
-    qAppName: string;
+    qAppId: string;
+    qAppIndexId: string
     jobExecutionRole: Role;
     jobDefinition: EcsJobDefinition;
     jobQueue: IJobQueue;
@@ -78,7 +79,8 @@ export class RestApiConstruct extends Construct {
             environment: {
                 BATCH_JOB_DEFINITION: props.jobDefinition.jobDefinitionArn,
                 BATCH_JOB_QUEUE: props.jobQueue.jobQueueArn,
-                Q_APP_NAME: props.qAppName,
+                Q_APP_ID: props.qAppId,
+                Q_APP_INDEX_ID: props.qAppIndexId,
                 Q_APP_ROLE_ARN: props.qAppRoleArn,
                 S3_BUCKET: props.s3Bucket.bucketName,
                 Q_APP_USER_ID: props.qAppUserId,
@@ -96,7 +98,8 @@ export class RestApiConstruct extends Construct {
             {
                 handler: backend,
                 defaultMethodOptions: {
-                    authorizationType: aws_apigateway.AuthorizationType.IAM
+                    // webhooks must be available without authorization
+                    authorizationType: aws_apigateway.AuthorizationType.NONE
                 },
             }
         )

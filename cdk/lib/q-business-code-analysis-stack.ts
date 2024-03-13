@@ -97,7 +97,8 @@ export class QBusinessCodeAnalysisStack extends cdk.Stack {
       jobExecutionRole: awsBatchConstruct.jobExecutionRole,
       jobQueue: awsBatchConstruct.jobQueue,
       promptConfig: awsBatchConstruct.paramStore,
-      qAppName: qAppName,
+      qAppId: qBusinessConstruct.appId,
+      qAppIndexId: qBusinessConstruct.indexId,
       qAppRoleArn: qAppRole.role.roleArn,
       qAppUserId: qAppUserId,
       s3Bucket: awsBatchConstruct.s3Bucket
