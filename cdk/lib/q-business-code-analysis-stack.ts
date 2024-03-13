@@ -3,6 +3,7 @@ import { Construct } from 'constructs';
 import { CustomQBusinessConstruct } from './constructs/custom-amazon-q-construct'
 import { QIamRoleConstruct } from './constructs/q-iam-role-construct';
 import { AwsBatchAnalysisConstruct } from './constructs/aws-batch-analysis-construct';
+import {RestApiConstruct} from "./constructs/rest-api-construct";
 
 
 export class QBusinessCodeAnalysisStack extends cdk.Stack {
@@ -55,8 +56,8 @@ export class QBusinessCodeAnalysisStack extends cdk.Stack {
 
     const qAppName = projectName;
 
-    const QIamRole = new QIamRoleConstruct(this, `QIamConstruct`, { 
-      roleName: qAppRoleName 
+    const qAppRole = new QIamRoleConstruct(this, `QIamConstruct`, {
+      roleName: qAppRoleName
     });
 
     const layer = new cdk.aws_lambda.LayerVersion(this, 'layerWithQBusiness', {
@@ -67,12 +68,12 @@ export class QBusinessCodeAnalysisStack extends cdk.Stack {
 
     const qBusinessConstruct = new CustomQBusinessConstruct(this, 'QBusinessAppConstruct', {
       amazon_q_app_name: qAppName,
-      amazon_q_app_role_arn: QIamRole.role.roleArn,
+      amazon_q_app_role_arn: qAppRole.role.roleArn,
       boto3Layer: layer
     });
 
     qBusinessConstruct.node.addDependency(layer);
-    qBusinessConstruct.node.addDependency(QIamRole);
+    qBusinessConstruct.node.addDependency(qAppRole);
 
     new cdk.CfnOutput(this, 'QBusinessAppName', {
       value: qAppName,
@@ -81,7 +82,7 @@ export class QBusinessCodeAnalysisStack extends cdk.Stack {
 
     // AWS Batch to run the code analysis
     const awsBatchConstruct = new AwsBatchAnalysisConstruct(this, 'AwsBatchConstruct', {
-      qAppRoleArn: QIamRole.role.roleArn,
+      qAppRoleArn: qAppRole.role.roleArn,
       qAppName: qAppName,
       repository: repositoryUrl,
       boto3Layer: layer,
@@ -89,7 +90,20 @@ export class QBusinessCodeAnalysisStack extends cdk.Stack {
       sshUrl: sshUrl,
       sshKeyName: sshKeyName
     });
- 
+
+    const restApi = new RestApiConstruct(this, 'RestApiConstruct', {
+      boto3Layer: layer,
+      jobDefinition: awsBatchConstruct.jobDefinition,
+      jobExecutionRole: awsBatchConstruct.jobExecutionRole,
+      jobQueue: awsBatchConstruct.jobQueue,
+      promptConfig: awsBatchConstruct.paramStore,
+      qAppName: qAppName,
+      qAppRoleArn: qAppRole.role.roleArn,
+      qAppUserId: qAppUserId,
+      s3Bucket: awsBatchConstruct.s3Bucket
+
+    })
+
     awsBatchConstruct.node.addDependency(qBusinessConstruct);
 
   }
