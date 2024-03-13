@@ -72,7 +72,7 @@ export class RestApiConstruct extends Construct {
             `arn:aws:lambda:${region}:017000801446:layer:AWSLambdaPowertoolsPythonV2:67`
     )
 
-        const backend = new lambda.Function(this, 'QBusinessSubmitJobLambda', {
+        const backend = new lambda.Function(this, 'RestAPILambda', {
             code: lambda.Code.fromAsset('lib/assets/lambdas/rest_api'),
             handler: 'handler.lambda_handler',
             runtime: lambda.Runtime.PYTHON_3_12,
@@ -85,6 +85,7 @@ export class RestApiConstruct extends Construct {
                 S3_BUCKET: props.s3Bucket.bucketName,
                 Q_APP_USER_ID: props.qAppUserId,
                 PROMPT_CONFIG_SSM_PARAM_NAME: props.promptConfig.parameterName,
+                POWERTOOLS_SERVICE_NAME: "RestAPI"
             },
             layers: [props.boto3Layer,powertools_layer],
             role: submitJobRole,
