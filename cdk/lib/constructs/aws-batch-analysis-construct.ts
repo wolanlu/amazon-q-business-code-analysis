@@ -15,8 +15,7 @@ export interface AwsBatchAnalysisProps extends cdk.StackProps {
   readonly repository: string;
   readonly boto3Layer: lambda.LayerVersion;
   readonly qAppUserId: string;
-  readonly sshUrl: string;
-  readonly sshKeyName: string;
+  readonly accessTokenName: string;
 }
 
 const defaultProps: Partial<AwsBatchAnalysisProps> = {};
@@ -28,7 +27,14 @@ export class AwsBatchAnalysisConstruct extends Construct {
   public jobDefinition: EcsJobDefinition;
   public jobExecutionRole: Role;
 
-    constructor(scope: Construct, name: string, props: AwsBatchAnalysisProps) {
+  constructor(scope: this, name: string, props: {
+    qAppRoleArn: any;
+    accessTokenName: any;
+    qAppName: any;
+    repository: any;
+    qAppUserId: any;
+    boto3Layer: cdk.aws_lambda.LayerVersion
+  }) {
       super(scope, name);
 
       props = { ...defaultProps, ...props };

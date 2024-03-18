@@ -33,17 +33,10 @@ export class QBusinessCodeAnalysisStack extends cdk.Stack {
       allowedPattern: '^https?://.+(\.git)$'
     });
 
-    // Optional SSH URL Param
-    const sshUrlParam = new cdk.CfnParameter(this, 'SshUrl', {
+    // Optional Access Token Param Name
+    const accessTokenNameParam = new cdk.CfnParameter(this, 'AccessTokenSecretName', {
       type: 'String',
-      description: 'Optional. The SSH URL of the repository to scan and ingest into Amazon Q Business. Note it should end with .git, i.e. git@github.com:aws-samples/langchain-agents.git',
-      default: 'None'
-    });
-
-    // Optional SSH Key Param Name
-    const sshKeyNameParam = new cdk.CfnParameter(this, 'SshSecretName', {
-      type: 'String',
-      description: 'Optional. The name of the SSH key to use to access the repository. It should be the name of the SSH key stored in the AWS Systems Manager Parameter Store.',
+      description: 'Optional. The name of the access token to use to access the repository. It should be the name of the access token stored in the AWS Systems Manager Parameter Store.',
       default: 'None'
     });
 
@@ -51,8 +44,7 @@ export class QBusinessCodeAnalysisStack extends cdk.Stack {
     const repositoryUrl = repositoryUrlParam.valueAsString;
     const qAppUserId = qAppUserIdParam.valueAsString;
     const projectName = projectNameParam.valueAsString;
-    const sshUrl = sshUrlParam.valueAsString;
-    const sshKeyName = sshKeyNameParam.valueAsString;
+    const accessTokenName = accessTokenNameParam.valueAsString;
 
     const qAppName = projectName;
 
@@ -87,8 +79,7 @@ export class QBusinessCodeAnalysisStack extends cdk.Stack {
       repository: repositoryUrl,
       boto3Layer: layer,
       qAppUserId: qAppUserId,
-      sshUrl: sshUrl,
-      sshKeyName: sshKeyName
+      accessTokenName: accessTokenName
     });
 
     const restApi = new RestApiConstruct(this, 'RestApiConstruct', {
