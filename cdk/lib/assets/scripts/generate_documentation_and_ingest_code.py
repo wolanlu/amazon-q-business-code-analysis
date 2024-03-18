@@ -1,14 +1,10 @@
-import datetime
 import json
 import logging
 import os
-import shutil
-import tempfile
-import time
 import uuid
 
 import boto3
-import git
+import github
 
 logging.basicConfig(
     level=logging.INFO,
@@ -20,43 +16,42 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-amazon_q = boto3.client('qbusiness')
 s3_client = boto3.client('s3', endpoint_url='https://s3.amazonaws.com', use_ssl=True)
 ssm = boto3.client('ssm')
+secretsmanager = boto3.client('secretsmanager')
+amazon_q = boto3.client('qbusiness')
 amazon_q_app_id = os.environ['AMAZON_Q_APP_ID']
 amazon_q_user_id = os.environ['AMAZON_Q_USER_ID']
 s3_bucket = os.environ['S3_BUCKET']
 index_id = os.environ['Q_APP_INDEX']
 role_arn = os.environ['Q_APP_ROLE_ARN']
 repo = os.environ['REPO_URL']
+access_token_name = os.environ['ACCESS_TOKEN_NAME']
 prompt_config_param_name = os.environ['PROMPT_CONFIG_SSM_PARAM_NAME']
-# Optional retrieve the SSH URL and SSH_KEY_NAME for the repository
-ssh = os.environ.get('SSH_URL')
-ssh_key_name = os.environ.get('SSH_KEY_NAME')
 # checkout specific ref and commit
-ref = os.environ.get('REF', 'main')
-commit = os.environ.get('COMMIT_SHA', 'HEAD')
+ref = os.environ.get('REF')
+commit = os.environ.get('COMMIT_SHA')
+commit_user = os.environ.get('COMMIT_USER')
+repo_owner, repo_name = repo.split('/')[-2:]
+repo_name = repo_name.replace('.git', '')
 
 
 def main():
-    logger.info(f"Processing repository... {repo}")
-    # If ssh_url ends with .git then process it
-    if ssh and ssh.endswith('.git'):
-        process_repository(repo, ssh)
-    else:
-        process_repository(repo)
-    logger.info(f"Finished processing repository {repo}")
+    logger.info(f"Getting commit data... {commit}")
+    repo_ref = retrieve_repo(access_token_name)
+    files = get_commit_data(repo_ref, commit)
+    process_commit_files(files, commit, repo_ref)
+    logger.info(f"Finished processing commit {commit} files")
 
 
-def ask_question_with_attachment(prompt, filename):
-    data = open(filename, 'rb')
+def ask_question_with_attachment(prompt, filename, file_str):
     answer = amazon_q.chat_sync(
         applicationId=amazon_q_app_id,
         userId=amazon_q_user_id,
         userMessage=prompt,
         attachments=[
             {
-                'data': data.read(),
+                'data': file_str,
                 'name': filename
             },
         ],
@@ -64,7 +59,7 @@ def ask_question_with_attachment(prompt, filename):
     return answer['systemMessage']
 
 
-def upload_prompt_answer_and_file_name(filename, prompt, answer, repo_url, prompt_type):
+def upload_prompt_answer_and_file_name(filename, commit_sha, prompt, answer, repo_url, prompt_type):
     cleaned_file_name = os.path.join(repo_url[:-4], '/'.join(filename.split('/')[1:]))
     amazon_q.batch_put_document(
         applicationId=amazon_q_app_id,
@@ -76,13 +71,19 @@ def upload_prompt_answer_and_file_name(filename, prompt, answer, repo_url, promp
                 'contentType': 'PLAIN_TEXT',
                 'title': cleaned_file_name,
                 'content': {
-                    'blob': f"{cleaned_file_name} | {prompt} | {answer}".encode('utf-8')
+                    'blob': f"{cleaned_file_name} | {commit_sha} | {prompt} | {answer}".encode('utf-8')
                 },
                 'attributes': [
                     {
                         'name': 'url',
                         'value': {
                             'stringValue': cleaned_file_name
+                        }
+                    },
+                    {
+                        'name': 'commit_sha',
+                        'value': {
+                            'stringValue': commit_sha
                         }
                     }
                 ]
@@ -91,48 +92,15 @@ def upload_prompt_answer_and_file_name(filename, prompt, answer, repo_url, promp
     )
 
 
-# Function to save generated answers to folder documentation/
-def save_answers(answer, filepath, folder):
-    # Only create directory until the last / of filepath
-    sub_directory = f"{folder}{filepath[:filepath.rfind('/') + 1]}"
-    if not os.path.exists(sub_directory):
-        # Only create directory until the last /
-        os.makedirs(sub_directory)
-    # Replace all file endings with .txt
-    filepath = filepath[:filepath.rfind('.')] + ".txt"
-    with open(f"{folder}{filepath}", "w") as f:
-        f.write(answer)
-
-
-def save_to_s3(bucket_name, repo_name, filepath, folder, documentation):
+def save_to_s3(bucket_name, filepath, folder, documentation):
     filepath = filepath + ".out"
     s3_client.put_object(Bucket=bucket_name, Key=f'{folder}/{repo_name}/{filepath}', Body=documentation.encode('utf-8'))
     logger.info(f"Saved {filepath} to S3")
 
 
-def should_ignore_path(path):
-    path_components = path.split(os.sep)
-    for component in path_components:
-        if component.startswith('.'):
-            return True
-        elif component == 'node_modules':
-            return True
-        elif component == '__pycache__':
-            return True
-    return False
-
-
-def get_ssh_key(secret_name):
-    client = boto3.client('secretsmanager')
-    response = client.get_secret_value(SecretId=secret_name)
+def get_access_token(secret_name):
+    response = secretsmanager.get_secret_value(SecretId=secret_name)
     return response['SecretString']
-
-
-def write_ssh_key_to_tempfile(ssh_key):
-    with tempfile.NamedTemporaryFile(delete=False) as f:
-        os.chmod(f.name, 0o600)
-        f.write(ssh_key.strip().encode() + b'\n')  # Add a newline character at the end
-        return f.name
 
 
 def get_questions_from_param_store(prompt_config_param_name):
@@ -140,85 +108,79 @@ def get_questions_from_param_store(prompt_config_param_name):
     return json.loads(response)
 
 
-def process_repository(repo_url, ssh_url=None):
-    # Temporary clone location
-    tmp_dir = f"/tmp/{datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S')}"
-    repo_name, _ = "-".join(repo_url.split('/')[-2:]).split(".")
-    destination_folder = 'repositories/'
-
-    if not os.path.exists(destination_folder):
-        os.makedirs(destination_folder)
-
-    # Clone the repository
-    # If you authenticate with some other repo provider just change the line below
-    logger.info(f"Cloning repository... {repo_url}")
-    if ssh_url:
-        ssh_key = get_ssh_key(ssh_key_name)
-        ssh_key_file = write_ssh_key_to_tempfile(ssh_key)
-        ssh_command = f"ssh -i {ssh_key_file} -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no"
-        repo = git.Repo.clone_from(ssh_url, tmp_dir, env={"GIT_SSH_COMMAND": ssh_command})
+def include_file_type(filename):
+    if not filename.endswith(('.png', '.jpg', '.jpeg', '.gif', '.zip')) and not filename.startswith('.'):
+        return True
     else:
-        repo = git.Repo.clone_from(repo_url, tmp_dir)
-    logger.info(f"Finished cloning repository {repo_url}")
-    # switch to branch
-    branch = repo.create_head(ref, commit=commit)
-    branch.checkout()
-    # Copy all files to destination folder
-    for src_dir, dirs, files in os.walk(tmp_dir):
-        dst_dir = src_dir.replace(tmp_dir, destination_folder)
-        if not os.path.exists(dst_dir):
-            os.mkdir(dst_dir)
-        for file_ in files:
-            src_file = os.path.join(src_dir, file_)
-            dst_file = os.path.join(dst_dir, file_)
-            if os.path.exists(dst_file):
-                os.remove(dst_file)
-            shutil.copy(src_file, dst_dir)
+        return False
 
-    # Delete temp clone
-    shutil.rmtree(tmp_dir)
 
-    processed_files = []
-    failed_files = []
-    logger.info(f"Processing files in {destination_folder}")
-    questions = get_questions_from_param_store(prompt_config_param_name)
-    for root, dirs, files in os.walk(destination_folder):
-        if should_ignore_path(root):
-            continue
-        for file in files:
-            if file.endswith(('.png', '.jpg', '.jpeg', '.gif', '.zip', '.pyc')):
-                continue
-            # Ignore files that start with a dot (.)
-            if file.startswith('.'):
-                continue
+def retrieve_repo(token_name):
+    token = get_access_token(token_name)
+    g = github.Github(token)
+    return g.get_repo(f"{repo_owner}/{repo_name}")
 
-            file_path = os.path.join(root, file)
 
-            for attempt in range(3):
-                try:
-                    logger.info(f"\033[92mProcessing file: {file_path}\033[0m")
-                    all_answers = ""
-                    for question in questions:
-                        answer = ask_question_with_attachment(question['prompt'], file_path)
-                        upload_prompt_answer_and_file_name(file_path, question['prompt'], answer, repo_url,
-                                                           prompt_type=question['type'])
-                        all_answers = all_answers + f"[{question['type']}]{question['prompt']}:\n{answer}\n"
+def get_commit_data(repo_ref, commit_sha):
+    commit_data = repo_ref.get_commit(commit_sha)
+    return commit_data.files
 
-                    # Upload the file itself to the index
-                    code = open(file_path, 'r')
-                    upload_prompt_answer_and_file_name(file_path, "", code.read(), repo_url, prompt_type="code")
-                    save_to_s3(s3_bucket, repo_name, file_path, "documentation", all_answers)
-                    processed_files.append(file)
-                    break
-                except Exception as e:
-                    logger.error(f"Error: {e}")
-                    time.sleep(15)
-            else:
-                logger.info(f"\033[93mSkipping file: {file_path}\033[0m")
-                failed_files.append(file_path)
 
-    logger.info(f"Processed files: {processed_files}")
-    logger.info(f"Failed files: {failed_files}")
+def get_commit_file_data(repo_ref, filename, commit_sha):
+    file_data = repo_ref.get_contents(filename, ref=commit_sha)
+    return file_data.decoded_content.decode('utf-8')
+
+
+def generate_file_doc(prompts, file_str, prefix_path, file_path, commit_sha):
+    answers = ""
+    for idx, prompt_data in enumerate(prompts):
+        prompt, prompt_type = prompt_data
+        answer = ask_question_with_attachment(prompt, file_path, file_str)
+        upload_prompt_answer_and_file_name(file_path, commit_sha, prompt, answer,
+                                           repo, prompt_type)
+        answers = answers + f"{idx+1}. {prompt}:\n\n{answer}\n\n"
+    save_to_s3(s3_bucket, file_path, f"documentation/{prefix_path}", answers)
+    return None
+
+
+def generate_file_diff_summary(prompts, file_str, prefix_path, file_path):
+    answers = ""
+    for idx, prompt in enumerate(prompts):
+        answer = ask_question_with_attachment(prompt, file_path, file_str)
+        answers = answers + f"{idx+1}. {prompt}:\n\n{answer}\n\n"
+    save_to_s3(s3_bucket, file_path, f"documentation/{prefix_path}", answers)
+    return answers
+
+
+def create_github_pr(repo_ref, commit_sha, commit_content, branch="develop"):
+    summary = f"PR request for {commit_sha}"
+    pull = repo_ref.create_pull(
+        title=summary,
+        head=f"{commit_user}:{ref}@{{{commit_sha}}}",
+        base=branch,
+        body=commit_content
+    )
+
+
+def process_commit_files(files, commit_sha, repo_ref):
+    prefix_commit = f"{repo_name}/commit/{commit_sha}/"
+    prefix_whole_doc = f"{repo_name}/whole/"
+    file_diff_summary_prompts = get_questions_from_param_store("file_diff_summary_prompts")
+    file_doc_gen_prompts = get_questions_from_param_store("file_doc_gen_prompts")
+    pr_changes = "Description of changes:\n\n"
+    for file_data in files:
+        filename = file_data['filename']
+        logger.info(f"Started processing data for {filename}")
+        if include_file_type(filename):
+            logger.info(f"Examining content of {filename}")
+            file_content = get_commit_file_data(repo_ref, filename, commit_sha)
+            generate_file_doc(file_doc_gen_prompts, file_content, prefix_whole_doc, filename, commit_sha)
+            logger.info(f"Examining commit changes for {filename}")
+            file_diff = file_data['patch']
+            file_changes = generate_file_diff_summary(file_diff_summary_prompts, file_diff, prefix_commit, filename)
+            pr_changes = pr_changes + f"## {filename}\n\n{file_changes}\n\n"
+    logger.info(f"Creating PR for {commit_sha}")
+    create_github_pr(repo_ref, commit_sha, pr_changes)
 
 
 if __name__ == "__main__":
