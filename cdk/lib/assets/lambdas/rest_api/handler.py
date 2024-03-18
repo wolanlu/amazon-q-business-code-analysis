@@ -21,7 +21,9 @@ q_app_role_arn = os.environ.get("Q_APP_ROLE_ARN")
 q_app_user_id = os.environ.get("Q_APP_USER_ID")
 q_app_id = os.environ.get("Q_APP_ID")
 q_app_index = os.environ.get("Q_APP_INDEX_ID")
+access_token_name = os.environ.get("ACCESS_TOKEN_NAME")
 prompt_config_param_name = os.environ.get("PROMPT_CONFIG_SSM_PARAM_NAME")
+
 
 @app.post("/webhooks/push")
 @tracer.capture_method
@@ -36,14 +38,21 @@ def push():
         raise BadRequestError("Missing after")
     commit_sha = push_event['after']
 
+    if 'commits' not in push_event:
+        raise BadRequestError("Missing commits")
+    commit_user = push_event['commits'][0]['author']['username']
+
     if 'ref' not in push_event:
         raise BadRequestError("Missing ref")
     ref = push_event['ref']
 
-    logger.info("Starting batch", extra={"clone_url": clone_url, "commit_sha": commit_sha, "ref": ref})
-    submit_job(repo_url=clone_url, commit_sha=commit_sha, ref=ref)
+    logger.info("Starting batch", extra={"clone_url": clone_url, "commit_sha": commit_sha, "ref": ref,
+                                         "commit_user": commit_user, "access_token_name": access_token_name})
+    submit_job(repo_url=clone_url, commit_sha=commit_sha, ref=ref, commit_user=commit_user,
+               access_token_name=access_token_name)
 
-    return {"clone_url": clone_url, "commit_sha": commit_sha, "ref": ref}
+    return {"clone_url": clone_url, "commit_sha": commit_sha, "ref": ref, "commit_user": commit_user,
+            "access_token_name": access_token_name}
 
 
 @logger.inject_lambda_context(correlation_id_path=correlation_paths.API_GATEWAY_REST)
@@ -51,8 +60,9 @@ def push():
 def lambda_handler(event: dict, context: LambdaContext) -> dict:
     return app.resolve(event, context)
 
+
 @tracer.capture_method
-def submit_job(repo_url, ssh_url="", ssh_key_name="", ref="", commit_sha=""):
+def submit_job(repo_url, commit_sha, ref, commit_user):
 
     container_overrides = {
         "environment": [
@@ -69,12 +79,12 @@ def submit_job(repo_url, ssh_url="", ssh_key_name="", ref="", commit_sha=""):
                 "value": commit_sha
             },
             {
-                "name": "SSH_URL",
-                "value": ssh_url
+                "name": "COMMIT_USER",
+                "value": commit_user
             },
             {
-                "name": "SSH_KEY_NAME",
-                "value": ssh_key_name
+                "name": "ACCESS_TOKEN_NAME",
+                "value": access_token_name
             },
             {
                 "name": "AMAZON_Q_APP_ID",
