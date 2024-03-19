@@ -8,7 +8,8 @@ import {aws_apigateway, aws_iam, Duration, Stack, StackProps} from "aws-cdk-lib"
 
 export interface RestApiProps extends StackProps {
     boto3Layer: lambda.LayerVersion;
-    promptConfig: IParameter;
+    promptConfig1: IParameter;
+    promptConfig2: IParameter;
     s3Bucket: IBucket;
     qAppUserId: string;
     qAppRoleArn: string;
@@ -22,7 +23,19 @@ export interface RestApiProps extends StackProps {
 
 const defaultProps: Partial<RestApiProps> = {};
 export class RestApiConstruct extends Construct {
-    constructor(scope: Construct, name: string, props: RestApiProps) {
+    constructor(scope: this, name: string, props: {
+        qAppRoleArn: any;
+        jobQueue:;
+        promptConfig2:;
+        promptConfig1:;
+        qAppIndexId: string;
+        jobExecutionRole:;
+        qAppId: string;
+        jobDefinition:;
+        qAppUserId: any;
+        s3Bucket:;
+        boto3Layer: cdk.aws_lambda.LayerVersion
+    }) {
         super(scope, name);
 
         props = {...defaultProps, ...props};
@@ -84,7 +97,8 @@ export class RestApiConstruct extends Construct {
                 Q_APP_ROLE_ARN: props.qAppRoleArn,
                 S3_BUCKET: props.s3Bucket.bucketName,
                 Q_APP_USER_ID: props.qAppUserId,
-                PROMPT_CONFIG_SSM_PARAM_NAME: props.promptConfig.parameterName,
+                PROMPT_CONFIG_SSM_PARAM_NAME1: props.promptConfig1.parameterName,
+                PROMPT_CONFIG_SSM_PARAM_NAME2: props.promptConfig2.parameterName,
                 POWERTOOLS_SERVICE_NAME: "RestAPI"
             },
             layers: [props.boto3Layer,powertools_layer],

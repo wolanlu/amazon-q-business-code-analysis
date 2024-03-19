@@ -27,7 +27,8 @@ index_id = os.environ['Q_APP_INDEX']
 role_arn = os.environ['Q_APP_ROLE_ARN']
 repo = os.environ['REPO_URL']
 access_token_name = os.environ['ACCESS_TOKEN_NAME']
-prompt_config_param_name = os.environ['PROMPT_CONFIG_SSM_PARAM_NAME']
+prompt_file_doc_config_param_name = os.environ['PROMPT_CONFIG_SSM_PARAM_NAME1']
+prompt_file_diff_doc_config_param_name = os.environ['PROMPT_CONFIG_SSM_PARAM_NAME2']
 # checkout specific ref and commit
 ref = os.environ.get('REF')
 commit = os.environ.get('COMMIT_SHA')
@@ -115,6 +116,13 @@ def include_file_type(filename):
         return False
 
 
+def check_if_missing_response(answer):
+    if answer == "Sorry, I could not find relevant information to complete your request.":
+        return True
+    else:
+        return False
+
+
 def retrieve_repo(token_name):
     token = get_access_token(token_name)
     g = github.Github(token)
@@ -136,9 +144,10 @@ def generate_file_doc(prompts, file_str, prefix_path, file_path, commit_sha):
     for idx, prompt_data in enumerate(prompts):
         prompt, prompt_type = prompt_data
         answer = ask_question_with_attachment(prompt, file_path, file_str)
-        upload_prompt_answer_and_file_name(file_path, commit_sha, prompt, answer,
-                                           repo, prompt_type)
-        answers = answers + f"{idx+1}. {prompt}:\n\n{answer}\n\n"
+        if not check_if_missing_response(answer):
+            upload_prompt_answer_and_file_name(file_path, commit_sha, prompt, answer,
+                                               repo, prompt_type)
+            answers = answers + f"{idx+1}. {prompt}:\n\n{answer}\n\n"
     save_to_s3(s3_bucket, file_path, f"documentation/{prefix_path}", answers)
     return None
 
@@ -147,7 +156,8 @@ def generate_file_diff_summary(prompts, file_str, prefix_path, file_path):
     answers = ""
     for idx, prompt in enumerate(prompts):
         answer = ask_question_with_attachment(prompt, file_path, file_str)
-        answers = answers + f"{idx+1}. {prompt}:\n\n{answer}\n\n"
+        if not check_if_missing_response(answer):
+            answers = answers + f"{idx+1}. {prompt}:\n\n{answer}\n\n"
     save_to_s3(s3_bucket, file_path, f"documentation/{prefix_path}", answers)
     return answers
 
@@ -165,8 +175,8 @@ def create_github_pr(repo_ref, commit_sha, commit_content, branch="develop"):
 def process_commit_files(files, commit_sha, repo_ref):
     prefix_commit = f"{repo_name}/commit/{commit_sha}/"
     prefix_whole_doc = f"{repo_name}/whole/"
-    file_diff_summary_prompts = get_questions_from_param_store("file_diff_summary_prompts")
-    file_doc_gen_prompts = get_questions_from_param_store("file_doc_gen_prompts")
+    file_diff_summary_prompts = get_questions_from_param_store(prompt_file_diff_doc_config_param_name)
+    file_doc_gen_prompts = get_questions_from_param_store(prompt_file_doc_config_param_name)
     pr_changes = "Description of changes:\n\n"
     for file_data in files:
         filename = file_data['filename']

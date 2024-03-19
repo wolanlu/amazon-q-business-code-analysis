@@ -21,7 +21,8 @@ export interface AwsBatchAnalysisProps extends cdk.StackProps {
 const defaultProps: Partial<AwsBatchAnalysisProps> = {};
 
 export class AwsBatchAnalysisConstruct extends Construct {
-  public paramStore: StringParameter;
+  public paramStore1: StringParameter;
+  public paramStore2: StringParameter;
   public s3Bucket: Bucket;
   public jobQueue: JobQueue;
   public jobDefinition: EcsJobDefinition;
@@ -41,7 +42,7 @@ export class AwsBatchAnalysisConstruct extends Construct {
 
       const awsAccountId = cdk.Stack.of(this).account;
 
-      this.paramStore = new cdk.aws_ssm.StringParameter(this, "CodeProcessingConfig", {
+      this.paramStore1 = new cdk.aws_ssm.StringParameter(this, "FileDocGenPromptConfig", {
         stringValue: JSON.stringify(
             [
               {
@@ -59,6 +60,21 @@ export class AwsBatchAnalysisConstruct extends Construct {
               {
                 "prompt": "Suggest improvements to the attached file. Try Q&A like 'What are some ways to improve the file?' or 'Where can the file be optimized?'",
                 "type": "improvements"
+              },
+            ]
+        ),
+      });
+
+      this.paramStore2 = new cdk.aws_ssm.StringParameter(this, "FileDiffDocGenPromptConfig", {
+        stringValue: JSON.stringify(
+            [
+              {
+                "prompt": "Please provide a description of commit changes included in the attached file. Please summarize what has been added and what has been deleted.",
+                "type": "description"
+              },
+              {
+                "prompt": "Describe commit changes included in the attached file. Classify them into 2 groups, first one completely new functionalities and minor changes. Do not include any intro sentence like 'Based on the analysis'. Get straight ot the point. This is important.",
+                "type": "classification"
               },
             ]
         ),

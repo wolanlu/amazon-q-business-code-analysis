@@ -22,7 +22,8 @@ q_app_user_id = os.environ.get("Q_APP_USER_ID")
 q_app_id = os.environ.get("Q_APP_ID")
 q_app_index = os.environ.get("Q_APP_INDEX_ID")
 access_token_name = os.environ.get("ACCESS_TOKEN_NAME")
-prompt_config_param_name = os.environ.get("PROMPT_CONFIG_SSM_PARAM_NAME")
+prompt_file_doc_config_param_name = os.environ.get("PROMPT_CONFIG_SSM_PARAM_NAME1")
+prompt_file_diff_doc_config_param_name = os.environ.get("PROMPT_CONFIG_SSM_PARAM_NAME2")
 
 
 @app.post("/webhooks/push")
@@ -107,9 +108,14 @@ def submit_job(repo_url, commit_sha, ref, commit_user):
                 "value": s3_bucket
             },
             {
-                "name": "PROMPT_CONFIG_SSM_PARAM_NAME",
-                "value": prompt_config_param_name
-            }],
+                "name": "PROMPT_CONFIG_SSM_PARAM_NAME1",
+                "value": prompt_file_doc_config_param_name
+            },
+            {
+                "name": "PROMPT_CONFIG_SSM_PARAM_NAME2",
+                "value": prompt_file_diff_doc_config_param_name
+            }
+        ],
         "command": [
             "sh","-c",f"yum -y install python-pip git && pip install boto3 awscli GitPython && aws s3 cp s3://{s3_bucket}/code-processing/generate_documentation_and_ingest_code.py . && python3 generate_documentation_and_ingest_code.py"
         ]
