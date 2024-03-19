@@ -4,6 +4,8 @@ import { CustomQBusinessConstruct } from './constructs/custom-amazon-q-construct
 import { QIamRoleConstruct } from './constructs/q-iam-role-construct';
 import { AwsBatchAnalysisConstruct } from './constructs/aws-batch-analysis-construct';
 import {RestApiConstruct} from "./constructs/rest-api-construct";
+import * as ec2 from "aws-cdk-lib/aws-ec2";
+import {KeyCloakConstruct} from "./constructs/key-cloak-construct";
 
 
 export class QBusinessCodeAnalysisStack extends cdk.Stack {
@@ -58,6 +60,14 @@ export class QBusinessCodeAnalysisStack extends cdk.Stack {
       description: 'Boto3 v1.34.40',
     });
 
+    const vpc = new ec2.Vpc(this, 'Vpc', {
+      maxAzs: 2,
+    });
+
+    const keyCloakServer = new KeyCloakConstruct(this, 'KeyCloakServer', {
+      vpc,
+    })
+
     const qBusinessConstruct = new CustomQBusinessConstruct(this, 'QBusinessAppConstruct', {
       amazon_q_app_name: qAppName,
       amazon_q_app_role_arn: qAppRole.role.roleArn,
@@ -79,7 +89,8 @@ export class QBusinessCodeAnalysisStack extends cdk.Stack {
       repository: repositoryUrl,
       boto3Layer: layer,
       qAppUserId: qAppUserId,
-      accessTokenName: accessTokenName
+      accessTokenName: accessTokenName,
+      vpc: vpc,
     });
 
     const restApi = new RestApiConstruct(this, 'RestApiConstruct', {

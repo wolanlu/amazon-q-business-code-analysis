@@ -1,16 +1,18 @@
 from datetime import datetime
+from typing import Annotated
 
 import boto3
 import os
 from aws_lambda_powertools import Logger, Tracer
 from aws_lambda_powertools.event_handler import APIGatewayRestResolver
 from aws_lambda_powertools.event_handler.exceptions import BadRequestError
+from aws_lambda_powertools.event_handler.openapi.params import Header
 from aws_lambda_powertools.logging import correlation_paths
 from aws_lambda_powertools.utilities.typing import LambdaContext
 
 tracer = Tracer()
 logger = Logger()
-app = APIGatewayRestResolver()
+app = APIGatewayRestResolver(enable_validation=True)
 
 aws_batch_client = boto3.client('batch')
 
@@ -28,7 +30,12 @@ prompt_file_diff_doc_config_param_name = os.environ.get("PROMPT_CONFIG_SSM_PARAM
 
 @app.post("/webhooks/push")
 @tracer.capture_method
-def push():
+def push(event: Annotated[str, Header(alias="X-GitHub-Event")]):
+    if event == 'ping':
+        return "pong"
+    elif event != "push":
+        raise BadRequestError("Invalid event")
+
     push_event: dict = app.current_event.json_body  # deserialize json str to dict
 
     if 'repository' not in push_event or 'clone_url' not in push_event['repository']:
