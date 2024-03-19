@@ -3,6 +3,10 @@ import { Construct } from "constructs";
 import * as batch from "aws-cdk-lib/aws-batch";
 import * as ecs from "aws-cdk-lib/aws-ecs";
 import * as lambda from "aws-cdk-lib/aws-lambda";
+import {StringParameter} from "aws-cdk-lib/aws-ssm";
+import {Bucket} from "aws-cdk-lib/aws-s3";
+import {EcsJobDefinition, JobQueue} from "aws-cdk-lib/aws-batch";
+import {Role} from "aws-cdk-lib/aws-iam";
 import {IVpc} from "aws-cdk-lib/aws-ec2";
 
 export interface AwsBatchAnalysisProps extends cdk.StackProps {
@@ -19,6 +23,11 @@ export interface AwsBatchAnalysisProps extends cdk.StackProps {
 const defaultProps: Partial<AwsBatchAnalysisProps> = {};
 
 export class AwsBatchAnalysisConstruct extends Construct {
+  public paramStore: StringParameter;
+  public s3Bucket: Bucket;
+  public jobQueue: JobQueue;
+  public jobDefinition: EcsJobDefinition;
+  public jobExecutionRole: Role;
 
     constructor(scope: Construct, name: string, props: AwsBatchAnalysisProps) {
       super(scope, name);
@@ -27,7 +36,7 @@ export class AwsBatchAnalysisConstruct extends Construct {
 
       const awsAccountId = cdk.Stack.of(this).account;
 
-      const paramStore = new cdk.aws_ssm.StringParameter(this, "CodeProcessingConfig", {
+      this.paramStore = new cdk.aws_ssm.StringParameter(this, "CodeProcessingConfig", {
         stringValue: JSON.stringify(
             [
               {
@@ -51,7 +60,7 @@ export class AwsBatchAnalysisConstruct extends Construct {
       });
 
       // Upload the code to S3
-      const s3Bucket = new cdk.aws_s3.Bucket(this, 'CodeProcessingBucket', {
+      this.s3Bucket = new cdk.aws_s3.Bucket(this, 'CodeProcessingBucket', {
         removalPolicy: cdk.RemovalPolicy.DESTROY,
         autoDeleteObjects: true,
         blockPublicAccess: cdk.aws_s3.BlockPublicAccess.BLOCK_ALL,
@@ -65,7 +74,7 @@ export class AwsBatchAnalysisConstruct extends Construct {
               "lib/assets/scripts"
           ),
         ],
-        destinationBucket: s3Bucket,
+        destinationBucket: this.s3Bucket,
         destinationKeyPrefix: "code-processing",
       });
 
@@ -73,7 +82,7 @@ export class AwsBatchAnalysisConstruct extends Construct {
         vpc: props.vpc,
       });
 
-      const jobQueue = new batch.JobQueue(this, 'QProcessingJobQueue', {
+      this.jobQueue = new batch.JobQueue(this, 'QProcessingJobQueue', {
         priority: 1,
         computeEnvironments: [
           {
@@ -83,11 +92,11 @@ export class AwsBatchAnalysisConstruct extends Construct {
         ],
       });
 
-      const jobExecutionRole = new cdk.aws_iam.Role(this, 'QProcessingJobExecutionRole', {
+      this.jobExecutionRole = new cdk.aws_iam.Role(this, 'QProcessingJobExecutionRole', {
         assumedBy: new cdk.aws_iam.ServicePrincipal('ecs-tasks.amazonaws.com'),
       });
 
-      jobExecutionRole.addToPolicy(new cdk.aws_iam.PolicyStatement({
+      this.jobExecutionRole.addToPolicy(new cdk.aws_iam.PolicyStatement({
         actions: [
           "qbusiness:ChatSync",
           "qbusiness:BatchPutDocument",
@@ -98,7 +107,7 @@ export class AwsBatchAnalysisConstruct extends Construct {
       }));
 
       // Grant Job Execution Role access to logging
-      jobExecutionRole.addToPolicy(new cdk.aws_iam.PolicyStatement({
+      this.jobExecutionRole.addToPolicy(new cdk.aws_iam.PolicyStatement({
         actions: [
           "logs:CreateLogGroup",
           "logs:CreateLogStream",
@@ -110,29 +119,29 @@ export class AwsBatchAnalysisConstruct extends Construct {
       }));
 
       // Allow pass role
-      jobExecutionRole.addToPolicy(new cdk.aws_iam.PolicyStatement({
+      this.jobExecutionRole.addToPolicy(new cdk.aws_iam.PolicyStatement({
         actions: [
           "iam:PassRole",
         ],
         resources: [props.qAppRoleArn],
       }));
 
-      s3Bucket.grantReadWrite(jobExecutionRole);
-      paramStore.grantRead(jobExecutionRole);
+      this.s3Bucket.grantReadWrite(this.jobExecutionRole);
+      this.paramStore.grantRead(this.jobExecutionRole);
 
-      const jobDefinition = new batch.EcsJobDefinition(this, 'QBusinessJob', {
+      this.jobDefinition = new batch.EcsJobDefinition(this, 'QBusinessJob', {
         container: new batch.EcsFargateContainerDefinition(this, 'Container', {
           image: ecs.ContainerImage.fromRegistry('public.ecr.aws/amazonlinux/amazonlinux:latest'),
           memory: cdk.Size.gibibytes(2),
           cpu: 1,
-          executionRole: jobExecutionRole,
-          jobRole: jobExecutionRole,
+          executionRole: this.jobExecutionRole,
+          jobRole: this.jobExecutionRole,
           ephemeralStorageSize: cdk.Size.gibibytes(21),
         }),
       });
 
       // Grant Job Execution Role to read from Secrets manager if ssh key is provided
-      jobExecutionRole.addToPolicy(new cdk.aws_iam.PolicyStatement({
+      this.jobExecutionRole.addToPolicy(new cdk.aws_iam.PolicyStatement({
         actions: [
           "secretsmanager:GetSecretValue",
         ],
@@ -141,85 +150,14 @@ export class AwsBatchAnalysisConstruct extends Construct {
         ],
       }));
 
-      // Role to submit job
-      const submitJobRole = new cdk.aws_iam.Role(this, 'QBusinessSubmitJobRole', {
-        assumedBy: new cdk.aws_iam.ServicePrincipal('lambda.amazonaws.com'),
-      });
-
-      submitJobRole.addToPolicy(new cdk.aws_iam.PolicyStatement({
-        actions: [
-          "qbusiness:ListApplications",
-          "qbusiness:ListIndices",
-        ],
-        resources: [
-          `*`,
-        ],
-      }));
-
-      submitJobRole.addToPolicy(new cdk.aws_iam.PolicyStatement({
-        actions: [
-          "iam:PassRole",
-        ],
-        resources: [jobExecutionRole.roleArn],
-      }));
-
-      // Submit Job Role CloudWatch Logs
-      submitJobRole.addToPolicy(new cdk.aws_iam.PolicyStatement({
-        actions: [
-          "logs:CreateLogGroup",
-          "logs:CreateLogStream",
-          "logs:PutLogEvents",
-        ],
-        resources: [
-          `arn:aws:logs:${cdk.Stack.of(this).region}:${awsAccountId}:log-group:/aws/lambda/*`,
-        ],
-      }));
-
-      // Lambda to submit job
-      const submitJobLambda  = new lambda.Function(this, 'QBusinessSubmitJobLambda', {
-        code: lambda.Code.fromAsset('lib/assets/lambdas/batch_lambdas'),
-        handler: 'submit_batch_job.on_event',
-        runtime: lambda.Runtime.PYTHON_3_12,
-        environment: {
-          BATCH_JOB_DEFINITION: jobDefinition.jobDefinitionArn,
-          BATCH_JOB_QUEUE: jobQueue.jobQueueArn,
-          REPO_URL: props.repository,
-          Q_APP_NAME: props.qAppName,
-          Q_APP_ROLE_ARN: props.qAppRoleArn,
-          S3_BUCKET: s3Bucket.bucketName,
-          Q_APP_USER_ID: props.qAppUserId,
-          SSH_URL: props.sshUrl,
-          SSH_KEY_NAME: props.sshKeyName,
-          PROMPT_CONFIG_SSM_PARAM_NAME: paramStore.parameterName,
-        },
-        layers: [props.boto3Layer],
-        role: submitJobRole,
-        timeout: cdk.Duration.minutes(5),
-        memorySize: 512,
-      });
-
-      submitJobLambda.node.addDependency(jobDefinition);
-
-      jobDefinition.grantSubmitJob(submitJobRole, jobQueue);
-
-      // Custom resource to invoke the lambda
-      const submitJobLambdaProvider = new cdk.custom_resources.Provider(this, 'QBuinessSubmitJobLambdaProvider', {
-        onEventHandler: submitJobLambda,
-        logRetention: cdk.aws_logs.RetentionDays.ONE_DAY,
-      });
-
-      new cdk.CustomResource(this, 'QBusinessSubmitJobLambdaCustomResource', {
-        serviceToken: submitJobLambdaProvider.serviceToken,
-      });
-
       // Output Job Queue
       new cdk.CfnOutput(this, 'JobQueue', {
-        value: jobQueue.jobQueueArn,
+        value: this.jobQueue.jobQueueArn,
       });
 
       // Output Job Execution Role
       new cdk.CfnOutput(this, 'JobExecutionRole', {
-        value: jobExecutionRole.roleArn,
+        value: this.jobExecutionRole.roleArn,
       });
 
     }

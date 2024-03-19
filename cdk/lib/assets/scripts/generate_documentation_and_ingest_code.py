@@ -33,6 +33,9 @@ prompt_config_param_name = os.environ['PROMPT_CONFIG_SSM_PARAM_NAME']
 # Optional retrieve the SSH URL and SSH_KEY_NAME for the repository
 ssh = os.environ.get('SSH_URL')
 ssh_key_name = os.environ.get('SSH_KEY_NAME')
+# checkout specific ref and commit
+ref = os.environ.get('REF', 'main')
+commit = os.environ.get('COMMIT_SHA', 'HEAD')
 
 
 def main():
@@ -153,10 +156,13 @@ def process_repository(repo_url, ssh_url=None):
         ssh_key = get_ssh_key(ssh_key_name)
         ssh_key_file = write_ssh_key_to_tempfile(ssh_key)
         ssh_command = f"ssh -i {ssh_key_file} -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no"
-        git.Repo.clone_from(ssh_url, tmp_dir, env={"GIT_SSH_COMMAND": ssh_command})
+        repo = git.Repo.clone_from(ssh_url, tmp_dir, env={"GIT_SSH_COMMAND": ssh_command})
     else:
-        git.Repo.clone_from(repo_url, tmp_dir)
+        repo = git.Repo.clone_from(repo_url, tmp_dir)
     logger.info(f"Finished cloning repository {repo_url}")
+    # switch to branch
+    branch = repo.create_head(ref, commit=commit)
+    branch.checkout()
     # Copy all files to destination folder
     for src_dir, dirs, files in os.walk(tmp_dir):
         dst_dir = src_dir.replace(tmp_dir, destination_folder)
