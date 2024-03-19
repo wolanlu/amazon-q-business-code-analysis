@@ -1,4 +1,4 @@
-import {StackProps, Stack, CfnOutput} from "aws-cdk-lib";
+import {StackProps, Stack, CfnOutput, aws_iam} from "aws-cdk-lib";
 import {Construct} from "constructs";
 import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as sm from "aws-cdk-lib/aws-secretsmanager";
@@ -47,7 +47,7 @@ export class KeyCloakConstruct extends Construct {
             'sudo chmod 655 /opt/certs/*',
             `ADMIN_PASS=$(aws secretsmanager get-secret-value --region ${Stack.of(this).region} --secret-id ${adminPassword.secretName} | jq -r ".SecretString | fromjson | .password")`,
             `USER_PASS=$(aws secretsmanager get-secret-value --region ${Stack.of(this).region} --secret-id ${userPassword.secretName} | jq -r ".SecretString | fromjson | .password")`,
-            'sudo docker run -d -p 80:8080 -p 443:8443 -v /opt/certs:/opt/certs -e KC_HTTPS_CERTIFICATE_FILE=/opt/certs/keycloak-server.crt.pem -e KC_HTTPS_CERTIFICATE_KEY_FILE=/opt/certs/keycloak-server.key.pem -e KEYCLOAK_ADMIN=admin -e KEYCLOAK_ADMIN_PASSWORD=$ADMIN_PASS --name key quay.io/keycloak/keycloak:22.0.4 start-dev',
+            'sudo docker run --restart always -d -p 80:8080 -p 443:8443 -v /opt/certs:/opt/certs -e KC_HTTPS_CERTIFICATE_FILE=/opt/certs/keycloak-server.crt.pem -e KC_HTTPS_CERTIFICATE_KEY_FILE=/opt/certs/keycloak-server.key.pem -e KEYCLOAK_ADMIN=admin -e KEYCLOAK_ADMIN_PASSWORD=$ADMIN_PASS --name key quay.io/keycloak/keycloak:22.0.4 start-dev',
             'sleep 120',
             'sudo docker exec key /bin/bash -c "cd /opt/keycloak/bin;./kcadm.sh config credentials --server http://localhost:8080 --realm master --user admin --password $ADMIN_PASS;./kcadm.sh update realms/master -s sslRequired=NONE"',
             'sudo docker exec key /bin/bash -c "cd /opt/keycloak/bin;./kcadm.sh config credentials --server http://localhost:8080 --realm master --user admin --password $ADMIN_PASS;./kcadm.sh create groups -r master -s name=Admins;./kcadm.sh create groups -r master -s name=SA;./kcadm.sh create groups -r master -s name=ML_SME_SA;./kcadm.sh create groups -r master -s name=DB_SME_SA"',
@@ -70,6 +70,7 @@ export class KeyCloakConstruct extends Construct {
         })
         keycloak_server.connections.allowFromAnyIpv4(ec2.Port.tcp(443), 'Allow HTTPS from anywhere')
         keycloak_server.connections.allowFromAnyIpv4(ec2.Port.tcp(80), 'Allow HTTP from anywhere')
+        keycloak_server.role.addManagedPolicy(aws_iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonSSMManagedInstanceCore'))
 
         adminPassword.grantRead(keycloak_server)
         userPassword.grantRead(keycloak_server)
