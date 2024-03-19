@@ -124,7 +124,7 @@ def submit_job(repo_url, commit_sha, ref, commit_user):
             }
         ],
         "command": [
-            "sh","-c",f"yum -y install python-pip git && pip install boto3 awscli GitPython && aws s3 cp s3://{s3_bucket}/code-processing/generate_documentation_and_ingest_code.py . && python3 generate_documentation_and_ingest_code.py"
+            "sh","-c",f"yum -y install python-pip git && pip install boto3 awscli PyGitHub && aws s3 cp s3://{s3_bucket}/code-processing/generate_documentation_and_ingest_code.py . && python3 generate_documentation_and_ingest_code.py"
         ]
     }
 
