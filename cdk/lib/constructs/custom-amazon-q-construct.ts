@@ -36,6 +36,8 @@ export class CustomQBusinessConstruct extends Construct {
           "qbusiness:CreateRetriever",
           "qbusiness:DeleteRetriever",
           "qbusiness:GetRetriever",
+          "qbusiness:CreateWebExperience",
+          "qbusiness:DeleteWebExperience",
         ],
         resources: [
           `arn:aws:qbusiness:${cdk.Stack.of(this).region}:${awsAccountId}:application/*`,
