@@ -23,19 +23,7 @@ export interface RestApiProps extends StackProps {
 
 const defaultProps: Partial<RestApiProps> = {};
 export class RestApiConstruct extends Construct {
-    constructor(scope: this, name: string, props: {
-        qAppRoleArn: any;
-        jobQueue:;
-        promptConfig2:;
-        promptConfig1:;
-        qAppIndexId: string;
-        jobExecutionRole:;
-        qAppId: string;
-        jobDefinition:;
-        qAppUserId: any;
-        s3Bucket:;
-        boto3Layer: cdk.aws_lambda.LayerVersion
-    }) {
+    constructor(scope: Construct, name: string, props: RestApiProps) {
         super(scope, name);
 
         props = {...defaultProps, ...props};

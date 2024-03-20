@@ -29,14 +29,7 @@ export class AwsBatchAnalysisConstruct extends Construct {
   public jobDefinition: EcsJobDefinition;
   public jobExecutionRole: Role;
 
-  constructor(scope: this, name: string, props: {
-    qAppRoleArn: any;
-    accessTokenName: any;
-    qAppName: any;
-    repository: any;
-    qAppUserId: any;
-    boto3Layer: cdk.aws_lambda.LayerVersion
-  }) {
+  constructor(scope: Construct, name: string, props: AwsBatchAnalysisProps) {
       super(scope, name);
 
       props = { ...defaultProps, ...props };
@@ -149,7 +142,8 @@ export class AwsBatchAnalysisConstruct extends Construct {
       }));
 
       this.s3Bucket.grantReadWrite(this.jobExecutionRole);
-      this.paramStore.grantRead(this.jobExecutionRole);
+      this.paramStore1.grantRead(this.jobExecutionRole);
+      this.paramStore2.grantRead(this.jobExecutionRole);
 
       this.jobDefinition = new batch.EcsJobDefinition(this, 'QBusinessJob', {
         container: new batch.EcsFargateContainerDefinition(this, 'Container', {
@@ -168,7 +162,7 @@ export class AwsBatchAnalysisConstruct extends Construct {
           "secretsmanager:GetSecretValue",
         ],
         resources: [
-          `arn:aws:secretsmanager:${cdk.Stack.of(this).region}:${awsAccountId}:secret:${props.sshKeyName}-??????`
+          `arn:aws:secretsmanager:${cdk.Stack.of(this).region}:${awsAccountId}:secret:${props.accessTokenName}-??????`
         ],
       }));
 

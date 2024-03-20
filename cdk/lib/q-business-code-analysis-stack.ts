@@ -106,7 +106,7 @@ export class QBusinessCodeAnalysisStack extends cdk.Stack {
       qAppUserId: qAppUserId,
       s3Bucket: awsBatchConstruct.s3Bucket
 
-    })
+    });
 
     awsBatchConstruct.node.addDependency(qBusinessConstruct);
 
