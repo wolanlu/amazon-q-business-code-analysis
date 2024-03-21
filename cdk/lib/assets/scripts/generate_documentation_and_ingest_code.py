@@ -164,9 +164,10 @@ def generate_file_diff_summary(prompts, file_str, prefix_path, file_path):
 
 def create_github_pr(repo_ref, commit_sha, commit_content, branch="develop"):
     summary = f"PR request for {commit_sha}"
+    source_branch = ref.replace("refs/heads/", "")
     pull = repo_ref.create_pull(
         title=summary,
-        head=f"{commit_user}:{ref}@{{{commit_sha}}}",
+        head=f"{commit_user}:{source_branch}@{{{commit_sha}}}",
         base=branch,
         body=commit_content
     )
