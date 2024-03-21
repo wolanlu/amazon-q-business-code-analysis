@@ -34,39 +34,49 @@ def on_create(event, physical_id):
     q_app_user_id = os.environ.get("Q_APP_USER_ID")
     ssh_url = os.environ.get("SSH_URL")
     ssh_key_name = os.environ.get("SSH_KEY_NAME")
+    prompt_config_param_name = os.environ.get("PROMPT_CONFIG_SSM_PARAM_NAME")
     print("Getting AP id and index...")
     q_app_id = get_q_app_id(q_app_name)
     q_app_index = get_q_app_index(q_app_name, q_app_id)
 
     container_overrides = {
-        "environment": [{
-            "name": "REPO_URL",
-            "value": repo_url
-        },
-        {
-            "name": "SSH_URL",
-            "value": ssh_url
-        },
-        {
-            "name": "SSH_KEY_NAME",
-            "value": ssh_key_name
-        },
-        {
-            "name": "AMAZON_Q_APP_ID",
-            "value": q_app_id
-        },
-        {
-            "name": "AMAZON_Q_USER_ID",
-            "value": q_app_user_id
-        },
-        {
-            "name": "Q_APP_INDEX",
-            "value": q_app_index
-        },
-        {
-            "name": "Q_APP_ROLE_ARN",
-            "value": q_app_role_arn
-        }],
+        "environment": [
+            {
+                "name": "REPO_URL",
+                "value": repo_url
+            },
+            {
+                "name": "SSH_URL",
+                "value": ssh_url
+            },
+            {
+                "name": "SSH_KEY_NAME",
+                "value": ssh_key_name
+            },
+            {
+                "name": "AMAZON_Q_APP_ID",
+                "value": q_app_id
+            },
+            {
+                "name": "AMAZON_Q_USER_ID",
+                "value": q_app_user_id
+            },
+            {
+                "name": "Q_APP_INDEX",
+                "value": q_app_index
+            },
+            {
+                "name": "Q_APP_ROLE_ARN",
+                "value": q_app_role_arn
+            },
+            {
+                "name": "S3_BUCKET",
+                "value": s3_bucket
+            },
+            {
+                "name": "PROMPT_CONFIG_SSM_PARAM_NAME",
+                "value": prompt_config_param_name
+            }],
         "command": [
             "sh","-c",f"yum -y install python-pip git && pip install boto3 awscli GitPython && aws s3 cp s3://{s3_bucket}/code-processing/generate_documentation_and_ingest_code.py . && python3 generate_documentation_and_ingest_code.py"
         ]

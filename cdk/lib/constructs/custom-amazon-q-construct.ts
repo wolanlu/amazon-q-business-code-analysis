@@ -11,14 +11,16 @@ const defaultProps: Partial<CustomResourceProps> = {};
 
 
 export class CustomQBusinessConstruct extends Construct {
+  public appId: string;
+  public indexId: string;
 
     constructor(scope: Construct, name: string, props: CustomResourceProps) {
       super(scope, name);
-  
+
       props = { ...defaultProps, ...props };
-  
+
       const awsAccountId = cdk.Stack.of(this).account;
-  
+
       const qBusinessCustomResourceRole = new cdk.aws_iam.Role(this, 'QBusinessCustomLambdaRole', {
         assumedBy: new cdk.aws_iam.ServicePrincipal('lambda.amazonaws.com'),
       });
@@ -34,6 +36,8 @@ export class CustomQBusinessConstruct extends Construct {
           "qbusiness:CreateRetriever",
           "qbusiness:DeleteRetriever",
           "qbusiness:GetRetriever",
+          "qbusiness:CreateWebExperience",
+          "qbusiness:DeleteWebExperience",
         ],
         resources: [
           `arn:aws:qbusiness:${cdk.Stack.of(this).region}:${awsAccountId}:application/*`,
@@ -47,7 +51,7 @@ export class CustomQBusinessConstruct extends Construct {
         ],
         resources: [props.amazon_q_app_role_arn],
       }));
-  
+
       const onEvent = new cdk.aws_lambda.Function(this, 'QBusinessCreateDeleteAppFunction', {
         runtime: cdk.aws_lambda.Runtime.PYTHON_3_12,
         handler: 'amazon_q_app_resource.on_event',
@@ -66,11 +70,15 @@ export class CustomQBusinessConstruct extends Construct {
         onEventHandler: onEvent,
         logRetention: cdk.aws_logs.RetentionDays.ONE_DAY
       });
-  
+
       const customResource = new cdk.CustomResource(this, 'QBusinessAppCfnHook', {
         serviceToken: qBusinessCustomResourceProvider.serviceToken
       });
-      
+
+      this.appId = customResource.getAttString('AmazonQAppId')
+      this.indexId = customResource.getAttString('AmazonQIndexId')
+
+
       new cdk.CfnOutput(this, "QBusinessAppFunctionArn", {
         value: onEvent.functionArn,
       });

@@ -3,6 +3,9 @@ import { Construct } from 'constructs';
 import { CustomQBusinessConstruct } from './constructs/custom-amazon-q-construct'
 import { QIamRoleConstruct } from './constructs/q-iam-role-construct';
 import { AwsBatchAnalysisConstruct } from './constructs/aws-batch-analysis-construct';
+import {RestApiConstruct} from "./constructs/rest-api-construct";
+import * as ec2 from "aws-cdk-lib/aws-ec2";
+import {KeyCloakConstruct} from "./constructs/key-cloak-construct";
 
 
 export class QBusinessCodeAnalysisStack extends cdk.Stack {
@@ -32,17 +35,10 @@ export class QBusinessCodeAnalysisStack extends cdk.Stack {
       allowedPattern: '^https?://.+(\.git)$'
     });
 
-    // Optional SSH URL Param
-    const sshUrlParam = new cdk.CfnParameter(this, 'SshUrl', {
+    // Optional Access Token Param Name
+    const accessTokenNameParam = new cdk.CfnParameter(this, 'AccessTokenSecretName', {
       type: 'String',
-      description: 'Optional. The SSH URL of the repository to scan and ingest into Amazon Q Business. Note it should end with .git, i.e. git@github.com:aws-samples/langchain-agents.git',
-      default: 'None'
-    });
-
-    // Optional SSH Key Param Name
-    const sshKeyNameParam = new cdk.CfnParameter(this, 'SshSecretName', {
-      type: 'String',
-      description: 'Optional. The name of the SSH key to use to access the repository. It should be the name of the SSH key stored in the AWS Systems Manager Parameter Store.',
+      description: 'Optional. The name of the access token to use to access the repository. It should be the name of the access token stored in the AWS Systems Manager Parameter Store.',
       default: 'None'
     });
 
@@ -50,13 +46,12 @@ export class QBusinessCodeAnalysisStack extends cdk.Stack {
     const repositoryUrl = repositoryUrlParam.valueAsString;
     const qAppUserId = qAppUserIdParam.valueAsString;
     const projectName = projectNameParam.valueAsString;
-    const sshUrl = sshUrlParam.valueAsString;
-    const sshKeyName = sshKeyNameParam.valueAsString;
+    const accessTokenName = accessTokenNameParam.valueAsString;
 
     const qAppName = projectName;
 
-    const QIamRole = new QIamRoleConstruct(this, `QIamConstruct`, { 
-      roleName: qAppRoleName 
+    const qAppRole = new QIamRoleConstruct(this, `QIamConstruct`, {
+      roleName: qAppRoleName
     });
 
     const layer = new cdk.aws_lambda.LayerVersion(this, 'layerWithQBusiness', {
@@ -65,14 +60,22 @@ export class QBusinessCodeAnalysisStack extends cdk.Stack {
       description: 'Boto3 v1.34.40',
     });
 
+    const vpc = new ec2.Vpc(this, 'Vpc', {
+      maxAzs: 2,
+    });
+
+    const keyCloakServer = new KeyCloakConstruct(this, 'KeyCloakServer', {
+      vpc,
+    })
+
     const qBusinessConstruct = new CustomQBusinessConstruct(this, 'QBusinessAppConstruct', {
       amazon_q_app_name: qAppName,
-      amazon_q_app_role_arn: QIamRole.role.roleArn,
+      amazon_q_app_role_arn: qAppRole.role.roleArn,
       boto3Layer: layer
     });
 
     qBusinessConstruct.node.addDependency(layer);
-    qBusinessConstruct.node.addDependency(QIamRole);
+    qBusinessConstruct.node.addDependency(qAppRole);
 
     new cdk.CfnOutput(this, 'QBusinessAppName', {
       value: qAppName,
@@ -81,15 +84,30 @@ export class QBusinessCodeAnalysisStack extends cdk.Stack {
 
     // AWS Batch to run the code analysis
     const awsBatchConstruct = new AwsBatchAnalysisConstruct(this, 'AwsBatchConstruct', {
-      qAppRoleArn: QIamRole.role.roleArn,
+      qAppRoleArn: qAppRole.role.roleArn,
       qAppName: qAppName,
       repository: repositoryUrl,
       boto3Layer: layer,
       qAppUserId: qAppUserId,
-      sshUrl: sshUrl,
-      sshKeyName: sshKeyName
+      accessTokenName: accessTokenName,
+      vpc: vpc,
     });
- 
+
+    const restApi = new RestApiConstruct(this, 'RestApiConstruct', {
+      boto3Layer: layer,
+      jobDefinition: awsBatchConstruct.jobDefinition,
+      jobExecutionRole: awsBatchConstruct.jobExecutionRole,
+      jobQueue: awsBatchConstruct.jobQueue,
+      promptConfig1: awsBatchConstruct.paramStore1,
+      promptConfig2: awsBatchConstruct.paramStore2,
+      qAppId: qBusinessConstruct.appId,
+      qAppIndexId: qBusinessConstruct.indexId,
+      qAppRoleArn: qAppRole.role.roleArn,
+      qAppUserId: qAppUserId,
+      s3Bucket: awsBatchConstruct.s3Bucket,
+      accessTokenName: accessTokenName,
+    });
+
     awsBatchConstruct.node.addDependency(qBusinessConstruct);
 
   }
