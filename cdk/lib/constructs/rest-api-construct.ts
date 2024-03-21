@@ -18,6 +18,7 @@ export interface RestApiProps extends StackProps {
     jobExecutionRole: Role;
     jobDefinition: EcsJobDefinition;
     jobQueue: IJobQueue;
+    accessTokenName: string,
 
 }
 
@@ -87,7 +88,8 @@ export class RestApiConstruct extends Construct {
                 Q_APP_USER_ID: props.qAppUserId,
                 PROMPT_CONFIG_SSM_PARAM_NAME1: props.promptConfig1.parameterName,
                 PROMPT_CONFIG_SSM_PARAM_NAME2: props.promptConfig2.parameterName,
-                POWERTOOLS_SERVICE_NAME: "RestAPI"
+                POWERTOOLS_SERVICE_NAME: "RestAPI",
+                ACCESS_TOKEN_NAME: props.accessTokenName
             },
             layers: [props.boto3Layer,powertools_layer],
             role: submitJobRole,
