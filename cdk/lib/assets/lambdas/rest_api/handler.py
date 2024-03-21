@@ -55,7 +55,7 @@ def push(event: Annotated[str, Header(alias="X-GitHub-Event")]):
     ref = push_event['ref']
 
     logger.info("Starting batch", extra={"clone_url": clone_url, "commit_sha": commit_sha, "ref": ref,
-                                         "commit_user": commit_user, "access_token_name": access_token_name})
+                                         "commit_user": commit_user, "token_name": access_token_name})
     submit_job(repo_url=clone_url, commit_sha=commit_sha, ref=ref, commit_user=commit_user,
                token_name=access_token_name)
 
