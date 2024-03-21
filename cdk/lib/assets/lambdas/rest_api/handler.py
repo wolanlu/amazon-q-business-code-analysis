@@ -70,7 +70,7 @@ def lambda_handler(event: dict, context: LambdaContext) -> dict:
 
 
 @tracer.capture_method
-def submit_job(repo_url, commit_sha, ref, commit_user):
+def submit_job(repo_url, commit_sha, ref, commit_user, token_name):
 
     container_overrides = {
         "environment": [
@@ -92,7 +92,7 @@ def submit_job(repo_url, commit_sha, ref, commit_user):
             },
             {
                 "name": "ACCESS_TOKEN_NAME",
-                "value": access_token_name
+                "value": token_name
             },
             {
                 "name": "AMAZON_Q_APP_ID",
